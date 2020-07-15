@@ -1,0 +1,5 @@
+language: nix
+install:
+  - nix-build release.nix
+script:
+  - nix-shell --run "cabal test"
