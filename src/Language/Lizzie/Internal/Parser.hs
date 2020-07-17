@@ -36,7 +36,7 @@ data Prog
 data Stmt
   = If [(Expr, Block)]
   | While Expr Block
-  | For (Expr, Expr, Expr) Block
+  | For (Maybe Expr, Maybe Expr, Maybe Expr) Block
   | Expr Expr
   | Return Expr
   deriving (Show)
@@ -52,9 +52,28 @@ data Expr
   | StringLiteral B.Short.ShortByteString
   | UnitLiteral
   | TypeCasting CType Expr
-  | UnaryOperator CUnaryOperator Expr
-  | BinaryOperator CBinaryOperator Expr Expr
+  | UnaryOperator CUnaryOperation Expr
+  | BinaryOperator CBinaryOperation Expr Expr
   deriving (Show)
+
+typeOf :: Expr -> Parser CType
+typeOf (FunctionCall _ _)       = undefined
+typeOf (VariableDefinition _ _) = pure CUnit -- shouldn't be there type with cardinality 0 instead (e.g. void)?
+typeOf (VariableReference _)    = undefined
+typeOf (BoolLiteral _)          = pure CBool
+typeOf (IntLiteral _)           = pure CInt64
+typeOf (FloatLiteral _)         = pure CFloat64
+typeOf (CharLiteral _)          = pure CUInt8
+typeOf (StringLiteral _)        = pure CString
+typeOf UnitLiteral              = pure CUnit
+typeOf (TypeCasting t _)        = pure t
+typeOf (UnaryOperator op e) = do
+  t <- typeOf e
+  pure (typeOfUnaryOperation op t)
+typeOf (BinaryOperator op e1 e2) = do
+  t1 <- typeOf e1
+  t2 <- typeOf e2
+  pure (typeOfBinaryOperation op t1 t2)
 
 --------------------------------------------------------------------------------
 -- Lexer
@@ -135,7 +154,7 @@ ifCondition = If <$> branches <?> "if condition"
                    <|> ifThen
         ifThen = symbol "if" *> pured branch
         ifThenElse = ifThen <* symbol "else"
-        branch = (,) <$> parens expr <*> block
+        branch = (,) <$> parens (expr `typed` boolType) <*> block
         elseBranch = pured ((BoolLiteral True,) <$> block)
 
 while :: Parser Stmt
@@ -143,17 +162,14 @@ while = While <$ symbol "while" <*> parens expr <*> block <?> "while loop"
 
 for :: Parser Stmt
 for = For <$ symbol "for" <*> cond <*> block <?> "for loop"
-  where cond = parens ((,,) <$> terminated expr <*> terminated expr <*> expr)
+  where cond = parens ((,,) <$> terminated (optional expr) <*> terminated (optional (expr `typed` boolType)) <*> (optional expr))
 
 ret :: Parser Stmt
 ret = Return <$ symbol "return" <*> terminated expr <?> "return statement"
 
 expr :: Parser Expr
 expr = makeExprParser term operatorTable
-  where term = try functionCall
-               <|> try variableDefinition
-               <|> variableReference
-               <|> (BoolLiteral <$> boolLiteral <?> "boolean literal")
+  where term = (BoolLiteral <$> boolLiteral <?> "boolean literal")
                <|> try (FloatLiteral <$> floatLiteral <?> "float literal")
                <|> (IntLiteral <$> decimalLiteral <?> "number literal")
                <|> (CharLiteral <$> charLiteral <?> "character literal")
@@ -161,6 +177,9 @@ expr = makeExprParser term operatorTable
                <|> try (UnitLiteral <$ symbol "()" <?> "unit literal")
                <|> try typeCasting
                <|> parens expr
+               <|> variableDefinition
+               <|> try functionCall
+               <|> variableReference
         operatorTable =
           [ [ Prefix (id <$ symbol "+")
             , Prefix (UnaryOperator CNegate <$ symbol "-")
@@ -195,8 +214,8 @@ functionCall = FunctionCall <$> knownIdentifier <*> args <?> "function call"
   where args = parens (expr `sepBy` symbol ",")
 
 variableDefinition :: Parser Expr
-variableDefinition = VariableDefinition <$> named <*> optional value <?> "variable definition"
-  where value = symbol "=" *> expr
+variableDefinition = named >>= (\(t, s) -> VariableDefinition (t, s) <$> optional (value t)) <?> "variable definition"
+  where value t = symbol "=" *> (expr `typed` ofType' t)
 
 variableReference :: Parser Expr
 variableReference = VariableReference <$> knownIdentifier <?> "variable reference"
@@ -218,6 +237,26 @@ parens p = between (symbol "(") (symbol ")") p
 
 terminated :: Parser a -> Parser a
 terminated p = p <* symbol ";"
+
+type TypecheckPredicate = ((CType -> Bool), String)
+
+typed :: Parser Expr -> TypecheckPredicate -> Parser Expr
+typed p (f, s) = do
+  e <- p
+  t <- typeOf e
+  if f t then pure e else fail ("Type error: expected " <> s <> " expression, but " <> show t <> " expression was given")
+
+ofType :: CType -> TypecheckPredicate
+ofType t = (\t' -> t' == t, show t)
+
+ofType' :: CType -> TypecheckPredicate
+ofType' t = if isNumeric t then numericType else ofType t
+
+boolType :: TypecheckPredicate
+boolType = ofType CBool
+
+numericType :: TypecheckPredicate
+numericType = (isNumeric, "numeric")
 
 --------------------------------------------------------------------------------
 -- Helpers
