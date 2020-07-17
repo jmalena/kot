@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 
 module Language.Lizzie.Internal.Parser
-  ( parse
+  ( test
   ) where
 
 import Control.Applicative hiding (many, some)
@@ -14,6 +14,7 @@ import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as B.Short
 import Data.Maybe
 import Data.Int
+import qualified Data.Set as Set
 import Data.Void
 import Data.Word
 
@@ -24,19 +25,27 @@ import Text.Megaparsec hiding (State, parse)
 import Text.Megaparsec.Byte
 import qualified Text.Megaparsec.Byte.Lexer as Lexer
 
+import Debug.Trace
+
 --------------------------------------------------------------------------------
 -- Types
-
-type Parser = ParsecT Void B.ByteString (State ParseState)
 
 type Symbol = B.Short.ShortByteString
 type Named = (CType, Symbol)
 type Block = [Stmt]
 
+type Parser = ParsecT Void B.ByteString (State ParseState)
+
 data ParseState = ParseState
   { funSymbolTable :: SymbolTable.SymbolTable Symbol (CType, [CType])
   , varSymbolTable :: SymbolTable.SymbolTable Symbol CType
   }
+
+makeParseState :: ParseState
+makeParseState = ParseState SymbolTable.empty SymbolTable.empty
+
+parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [Prog]
+parse s i = fst (runState (runParserT program s i) makeParseState)
 
 data Prog
   = Function Named [Named] Block
@@ -137,13 +146,15 @@ knownIdentifier :: String -> (Symbol -> Parser Bool) -> Parser Symbol
 knownIdentifier l f = do
   s <- identifier
   b <- f s
-  if b then pure s else fail ("Undefined " <> l <> " '" <> show s <> "'.")
+  unless b $ registerFancyFailure (Set.singleton (ErrorFail ("Undefined " <> l <> " '" <> show s <> "'.")))
+  pure s
 
 unknownIdentifier :: String -> (Symbol -> Parser Bool) -> Parser Symbol
 unknownIdentifier l f = do
   s <- identifier
   b <- f s
-  if b then fail ("Already defined " <> l <> " '" <> show s <> "'.") else pure s
+  when b $ registerFancyFailure (Set.singleton (ErrorFail ("Already defined " <> l <> " '" <> show s <> "'.")))
+  pure s
 
 knownFunction :: Parser Symbol
 knownFunction = knownIdentifier "function" (\s -> isJust <$> lookupFunction s)
@@ -315,7 +326,8 @@ typed :: Parser Expr -> TypecheckPredicate -> Parser Expr
 typed p (s, f) = do
   e <- p
   t <- typeOf e
-  if f t then pure e else fail ("Expected " <> s <> " expression, but " <> show t <> " expression was given.")
+  unless (f t) $ registerFancyFailure (Set.singleton (ErrorFail ("Expected " <> s <> " expression, but " <> show t <> " expression was given.")))
+  pure e
 
 ofType :: CType -> TypecheckPredicate
 ofType t = (show t, \t' -> t' == t)
@@ -336,10 +348,9 @@ pured :: (Applicative f1, Applicative f2) => f1 a -> f1 (f2 a)
 pured = (<$>) pure
 
 --------------------------------------------------------------------------------
--- Interface
+-- Debug
 
-makeParseState :: ParseState
-makeParseState = ParseState SymbolTable.empty SymbolTable.empty
-
-parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [Prog]
-parse s i = fst (runState (runParserT program s i) makeParseState)
+test i =
+  case parse "test" i of
+    Left err -> putStrLn $ errorBundlePretty err
+    Right ast -> putStrLn $ show ast
