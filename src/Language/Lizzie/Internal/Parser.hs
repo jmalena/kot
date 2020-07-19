@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -41,12 +42,6 @@ data ParseState = ParseState
   , varSymbolTable :: SymbolTable.SymbolTable Symbol CType
   }
 
-makeParseState :: ParseState
-makeParseState = ParseState SymbolTable.empty SymbolTable.empty
-
-parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [Prog]
-parse s i = fst (runState (runParserT program s i) makeParseState)
-
 data Prog
   = Function Named [Named] Block
   deriving (Show)
@@ -63,7 +58,6 @@ data Expr
   = FunctionCall Symbol [Expr]
   | VariableDefinition Named (Maybe Expr)
   | VariableReference Symbol
-  | BoolLiteral Bool
   | IntLiteral Int64
   | FloatLiteral Double
   | CharLiteral Word8
@@ -73,25 +67,6 @@ data Expr
   | UnaryOperator CUnaryOperation Expr
   | BinaryOperator CBinaryOperation Expr Expr
   deriving (Show)
-
-typeOf :: (MonadState ParseState m) => Expr -> m CType
-typeOf (FunctionCall s _)       = fst <$> lookupFunction' s
-typeOf (VariableDefinition _ _) = pure CUnit -- shouldn't be there type with cardinality 0 instead (e.g. void)?
-typeOf (VariableReference s)    = lookupVariable' s
-typeOf (BoolLiteral _)          = pure CBool
-typeOf (IntLiteral _)           = pure CInt64
-typeOf (FloatLiteral _)         = pure CFloat64
-typeOf (CharLiteral _)          = pure CUInt8
-typeOf (StringLiteral _)        = pure CString
-typeOf UnitLiteral              = pure CUnit
-typeOf (TypeCasting t _)        = pure t
-typeOf (UnaryOperator op e) = do
-  t <- typeOf e
-  pure (typeOfUnaryOperation op t)
-typeOf (BinaryOperator op e1 e2) = do
-  t1 <- typeOf e1
-  t2 <- typeOf e2
-  pure (typeOfBinaryOperation op t1 t2)
 
 withScope :: (MonadState ParseState m) => m a -> m a
 withScope f = do
@@ -118,11 +93,11 @@ lookupFunction k = SymbolTable.lookup k <$> gets funSymbolTable
 lookupVariable :: (MonadState ParseState m) => Symbol -> m (Maybe CType)
 lookupVariable k = SymbolTable.lookup k <$> gets varSymbolTable
 
-lookupFunction' :: (MonadState ParseState m) => Symbol -> m (CType, [CType])
-lookupFunction' k = fromJust <$> lookupFunction k
+makeParseState :: ParseState
+makeParseState = ParseState SymbolTable.empty SymbolTable.empty
 
-lookupVariable' :: (MonadState ParseState m) => Symbol -> m CType
-lookupVariable' k = fromJust <$> lookupVariable k
+parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [Prog]
+parse s i = fst (runState (runParserT program s i) makeParseState)
 
 --------------------------------------------------------------------------------
 -- Lexer
@@ -142,37 +117,24 @@ identifier :: Parser Symbol
 identifier = B.Short.pack <$> lexeme parser <?> "identifier"
   where parser = (:) <$> letterChar <*> many alphaNumChar
 
-knownIdentifier :: String -> (Symbol -> Parser Bool) -> Parser Symbol
-knownIdentifier l f = do
+knownIdentifier :: (Symbol -> Parser Bool) -> (Symbol -> String) -> Parser Symbol
+knownIdentifier f g = do
   s <- identifier
   b <- f s
-  unless b $ registerFancyFailure (Set.singleton (ErrorFail ("Undefined " <> l <> " '" <> show s <> "'.")))
-  pure s
-
-unknownIdentifier :: String -> (Symbol -> Parser Bool) -> Parser Symbol
-unknownIdentifier l f = do
-  s <- identifier
-  b <- f s
-  when b $ registerFancyFailure (Set.singleton (ErrorFail ("Already defined " <> l <> " '" <> show s <> "'.")))
+  unless b $ registerError (g s)
   pure s
 
 knownFunction :: Parser Symbol
-knownFunction = knownIdentifier "function" (\s -> isJust <$> lookupFunction s)
+knownFunction = knownIdentifier (\s -> isJust <$> lookupFunction s) (\s -> "Undefined function " <> show s <> ".")
 
 knownVariable :: Parser Symbol
-knownVariable = knownIdentifier "variable" (\s -> isJust <$> lookupVariable s)
+knownVariable = knownIdentifier (\s -> isJust <$> lookupVariable s) (\s -> "Undefined variable " <> show s <> ".")
 
 unknownFunction :: Parser Symbol
-unknownFunction = unknownIdentifier "function" (\s -> isJust <$> lookupFunction s)
+unknownFunction = knownIdentifier (\s -> not . isJust <$> lookupFunction s) (\s -> "Function " <> show s <> " is already defined.")
 
 unknownVariable :: Parser Symbol
-unknownVariable = unknownIdentifier "variable" (\s -> isJust <$> lookupVariable s)
-
-boolLiteral :: Parser Bool
-boolLiteral = choice
-  [ True <$ symbol "true"
-  , False <$ symbol "false"
-  ]
+unknownVariable = knownIdentifier (\s -> not . isJust <$> lookupVariable s) (\s -> "Variable " <> show s <> " is already defined.")
 
 decimalLiteral :: Parser Int64
 decimalLiteral = lexeme Lexer.decimal
@@ -188,8 +150,7 @@ stringLiteral = undefined
 
 typeLiteral :: Parser CType
 typeLiteral = choice
-  [ CUnit <$ symbol "unit"
-  , CBool <$ symbol "bool"
+  [ CVoid <$ symbol "void"
   , CInt8 <$ symbol "int8"
   , CUInt8 <$ symbol "uint8"
   , CInt16 <$ symbol "int16"
@@ -200,7 +161,6 @@ typeLiteral = choice
   , CUInt64 <$ symbol "uint64"
   , CFloat32 <$ symbol "float32"
   , CFloat64 <$ symbol "float64"
-  , CString <$ symbol "string"
   ]
 
 --------------------------------------------------------------------------------
@@ -230,38 +190,36 @@ ifCondition = If <$> branches <?> "if condition"
                    <|> ifThen
         ifThen = symbol "if" *> pured branch
         ifThenElse = ifThen <* symbol "else"
-        branch = (,) <$> parens (expr `typed` boolType) <*> block
-        elseBranch = pured ((BoolLiteral True,) <$> block)
+        branch = (,) <$> parens expr <*> block
+        elseBranch = pured ((IntLiteral 1,) <$> block)
 
 while :: Parser Stmt
 while = While <$ symbol "while" <*> parens expr <*> block <?> "while loop"
 
 for :: Parser Stmt
 for = For <$ symbol "for" <*> cond <*> block <?> "for loop"
-  where cond = parens ((,,) <$> terminated (optional expr) <*> terminated (optional (expr `typed` boolType)) <*> (optional expr))
+  where cond = parens ((,,) <$> terminated (optional expr) <*> terminated (optional expr) <*> optional expr)
 
 ret :: Parser Stmt
 ret = Return <$ symbol "return" <*> terminated expr <?> "return statement"
 
 expr :: Parser Expr
 expr = makeExprParser term operatorTable
-  where term = (BoolLiteral <$> boolLiteral <?> "boolean literal")
-               <|> try (FloatLiteral <$> floatLiteral <?> "float literal")
+  where term = try (FloatLiteral <$> floatLiteral <?> "float literal")
                <|> (IntLiteral <$> decimalLiteral <?> "number literal")
                <|> (CharLiteral <$> charLiteral <?> "character literal")
                -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
-               <|> try (UnitLiteral <$ symbol "()" <?> "unit literal")
-               <|> try typeCasting
-               <|> parens expr
                <|> variableDefinition
                <|> try functionCall
-               <|> variableReference
+               <|> (UnaryOperator CDereference <$ symbol "*" <*> expr)
+               <|> (UnaryOperator CNot <$ symbol "!" <*> expr)
+               <|> (VariableReference <$> knownVariable <?> "variable reference")
+               <|> try (TypeCasting <$> parens typeLiteral <*> expr <?> "type casting")
+               <|> parens expr
         operatorTable =
           [ [ Prefix (id <$ symbol "+")
             , Prefix (UnaryOperator CNegate <$ symbol "-")
             , Prefix (UnaryOperator CAddress <$ symbol "&")
-            , Prefix (UnaryOperator CDereference <$ symbol "*")
-            , Prefix (UnaryOperator CNot <$ symbol "!")
             ]
           , [ InfixL (BinaryOperator CMultiply <$ symbol "*")
             , InfixL (BinaryOperator CDivide <$ symbol "/")
@@ -286,18 +244,17 @@ expr = makeExprParser term operatorTable
           ]
 
 functionCall :: Parser Expr
-functionCall = FunctionCall <$> knownFunction <*> args <?> "function call"
-  where args = parens (expr `sepBy` symbol ",")
+functionCall = (knownFunction >>= \s -> FunctionCall s <$> (args s)) <?> "function call"
+  where args s = do
+          xs <- parens (expr `sepBy` symbol ",")
+          lookupFunction s >>= \case
+            Just (_, ts) -> when (length xs /= length ts) $ registerError ("Function " <> show s <> " has arity " <> show (length ts) <> ", but " <> show (length xs) <> " arguments were given.")
+            Nothing -> pure ()
+          pure xs
 
 variableDefinition :: Parser Expr
 variableDefinition = namedVariable' >>= (\(t, s) -> VariableDefinition (t, s) <$> optional (value t)) <?> "variable definition"
-  where value t = symbol "=" *> (expr `typed` ofType' t)
-
-variableReference :: Parser Expr
-variableReference = VariableReference <$> knownVariable <?> "variable reference"
-
-typeCasting :: Parser Expr
-typeCasting = TypeCasting <$> parens typeLiteral <*> expr <?> "type casting"
+  where value t = symbol "=" *> expr
 
 --------------------------------------------------------------------------------
 -- Parser helpers
@@ -320,26 +277,8 @@ parens p = between (symbol "(") (symbol ")") p
 terminated :: Parser a -> Parser a
 terminated p = p <* symbol ";"
 
-type TypecheckPredicate = (String, (CType -> Bool))
-
-typed :: Parser Expr -> TypecheckPredicate -> Parser Expr
-typed p (s, f) = do
-  e <- p
-  t <- typeOf e
-  unless (f t) $ registerFancyFailure (Set.singleton (ErrorFail ("Expected " <> s <> " expression, but " <> show t <> " expression was given.")))
-  pure e
-
-ofType :: CType -> TypecheckPredicate
-ofType t = (show t, \t' -> t' == t)
-
-ofType' :: CType -> TypecheckPredicate
-ofType' t = if isNumeric t then numericType else ofType t
-
-boolType :: TypecheckPredicate
-boolType = ofType CBool
-
-numericType :: TypecheckPredicate
-numericType = ("numeric", isNumeric)
+registerError :: String -> Parser ()
+registerError = registerFancyFailure . Set.singleton . ErrorFail
 
 --------------------------------------------------------------------------------
 -- Helpers
