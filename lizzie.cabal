@@ -13,8 +13,7 @@ extra-source-files:  CHANGELOG.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Language.Lizzie.Internal.Core
-                       Language.Lizzie.Internal.Parser
+  exposed-modules:     Language.Lizzie.Internal.Parser
                        Language.Lizzie.Internal.SymbolTable
   -- other-modules:
   -- other-extensions:

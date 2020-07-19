@@ -19,28 +19,54 @@ import qualified Data.Set as Set
 import Data.Void
 import Data.Word
 
-import Language.Lizzie.Internal.Core
 import qualified Language.Lizzie.Internal.SymbolTable as SymbolTable
 
 import Text.Megaparsec hiding (State, parse)
 import Text.Megaparsec.Byte
 import qualified Text.Megaparsec.Byte.Lexer as Lexer
 
-import Debug.Trace
-
 --------------------------------------------------------------------------------
 -- Types
 
 type Symbol = B.Short.ShortByteString
-type Named = (CType, Symbol)
+type Named = (Type, Symbol)
 type Block = [Stmt]
 
 type Parser = ParsecT Void B.ByteString (State ParseState)
 
 data ParseState = ParseState
-  { funSymbolTable :: SymbolTable.SymbolTable Symbol (CType, [CType])
-  , varSymbolTable :: SymbolTable.SymbolTable Symbol CType
+  { funSymbolTable :: SymbolTable.SymbolTable Symbol (Type, [Type])
+  , varSymbolTable :: SymbolTable.SymbolTable Symbol Type
   }
+
+data Type
+  = Void
+  | Int8
+  | UInt8
+  | Int16
+  | UInt16
+  | Int32
+  | UInt32
+  | Int64
+  | UInt64
+  | Float32
+  | Float64
+  | Ptr Type
+  deriving (Eq)
+
+instance Show Type where
+  show Void    = "void"
+  show Int8    = "int8"
+  show UInt8   = "uint8"
+  show Int16   = "int16"
+  show UInt16  = "uint16"
+  show Int32   = "int32"
+  show UInt32  = "uint32"
+  show Int64   = "int64"
+  show UInt64  = "uint64"
+  show Float32 = "float32"
+  show Float64 = "float64"
+  show (Ptr t) = "*" <> show t
 
 data Prog
   = Function Named [Named] Block
@@ -63,10 +89,33 @@ data Expr
   | CharLiteral Word8
   | StringLiteral B.Short.ShortByteString
   | UnitLiteral
-  | TypeCasting CType Expr
-  | UnaryOperator CUnaryOperation Expr
-  | BinaryOperator CBinaryOperation Expr Expr
+  | TypeCast Type Expr
+  | UnaryOperator UnaryOperation Expr
+  | BinaryOperator BinaryOperation Expr Expr
   deriving (Show)
+
+data UnaryOperation
+  = Negate
+  | Not
+  | Address
+  | Dereference
+  deriving (Eq, Show)
+
+data BinaryOperation
+  = Add
+  | Subtract
+  | Multiply
+  | Divide
+  | LessThan
+  | LessThanEqual
+  | GreaterThan
+  | GreaterThanEqual
+  | Equal
+  | NotEqual
+  | And
+  | Or
+  | Assign
+  deriving (Eq, Show)
 
 withScope :: (MonadState ParseState m) => m a -> m a
 withScope f = do
@@ -77,20 +126,20 @@ withScope f = do
   modify $ \s -> s { funSymbolTable = tab1, varSymbolTable = tab2 }
   pure res
 
-registerFunction :: (MonadState ParseState m) => Symbol -> (CType, [CType]) -> m ()
+registerFunction :: (MonadState ParseState m) => Symbol -> (Type, [Type]) -> m ()
 registerFunction k v = do
   tab <- gets funSymbolTable
   modify $ \s -> s { funSymbolTable = SymbolTable.insert k v tab }
 
-registerVariable :: (MonadState ParseState m) => Symbol -> CType -> m ()
+registerVariable :: (MonadState ParseState m) => Symbol -> Type -> m ()
 registerVariable k v = do
   tab <- gets varSymbolTable
   modify $ \s -> s { varSymbolTable = SymbolTable.insert k v tab }
 
-lookupFunction :: (MonadState ParseState m) => Symbol -> m (Maybe (CType, [CType]))
+lookupFunction :: (MonadState ParseState m) => Symbol -> m (Maybe (Type, [Type]))
 lookupFunction k = SymbolTable.lookup k <$> gets funSymbolTable
 
-lookupVariable :: (MonadState ParseState m) => Symbol -> m (Maybe CType)
+lookupVariable :: (MonadState ParseState m) => Symbol -> m (Maybe Type)
 lookupVariable k = SymbolTable.lookup k <$> gets varSymbolTable
 
 makeParseState :: ParseState
@@ -148,19 +197,19 @@ charLiteral = lexeme (between (char 39) (char 39) printChar)
 stringLiteral :: Parser B.Short.ShortByteString
 stringLiteral = undefined
 
-typeLiteral :: Parser CType
+typeLiteral :: Parser Type
 typeLiteral = choice
-  [ CVoid <$ symbol "void"
-  , CInt8 <$ symbol "int8"
-  , CUInt8 <$ symbol "uint8"
-  , CInt16 <$ symbol "int16"
-  , CUInt16 <$ symbol "uint16"
-  , CInt32 <$ symbol "int32"
-  , CUInt32 <$ symbol "uint32"
-  , CInt64 <$ symbol "int64"
-  , CUInt64 <$ symbol "uint64"
-  , CFloat32 <$ symbol "float32"
-  , CFloat64 <$ symbol "float64"
+  [ Void <$ symbol "void"
+  , Int8 <$ symbol "int8"
+  , UInt8 <$ symbol "uint8"
+  , Int16 <$ symbol "int16"
+  , UInt16 <$ symbol "uint16"
+  , Int32 <$ symbol "int32"
+  , UInt32 <$ symbol "uint32"
+  , Int64 <$ symbol "int64"
+  , UInt64 <$ symbol "uint64"
+  , Float32 <$ symbol "float32"
+  , Float64 <$ symbol "float64"
   ]
 
 --------------------------------------------------------------------------------
@@ -211,35 +260,35 @@ expr = makeExprParser term operatorTable
                -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
                <|> variableDefinition
                <|> try functionCall
-               <|> (UnaryOperator CDereference <$ symbol "*" <*> expr)
-               <|> (UnaryOperator CNot <$ symbol "!" <*> expr)
+               <|> (UnaryOperator Dereference <$ symbol "*" <*> expr)
+               <|> (UnaryOperator Not <$ symbol "!" <*> expr)
                <|> (VariableReference <$> knownVariable <?> "variable reference")
-               <|> try (TypeCasting <$> parens typeLiteral <*> expr <?> "type casting")
+               <|> try (TypeCast <$> parens typeLiteral <*> expr <?> "type casting")
                <|> parens expr
         operatorTable =
           [ [ Prefix (id <$ symbol "+")
-            , Prefix (UnaryOperator CNegate <$ symbol "-")
-            , Prefix (UnaryOperator CAddress <$ symbol "&")
+            , Prefix (UnaryOperator Negate <$ symbol "-")
+            , Prefix (UnaryOperator Address <$ symbol "&")
             ]
-          , [ InfixL (BinaryOperator CMultiply <$ symbol "*")
-            , InfixL (BinaryOperator CDivide <$ symbol "/")
+          , [ InfixL (BinaryOperator Multiply <$ symbol "*")
+            , InfixL (BinaryOperator Divide <$ symbol "/")
             ]
-          , [ InfixL (BinaryOperator CAdd <$ symbol "+")
-            , InfixL (BinaryOperator CSubtract <$ symbol "-")
+          , [ InfixL (BinaryOperator Add <$ symbol "+")
+            , InfixL (BinaryOperator Subtract <$ symbol "-")
             ]
-          , [ InfixL (BinaryOperator CLessThan <$ symbol "<")
-            , InfixL (BinaryOperator CLessThanEqual <$ symbol "<=")
-            , InfixL (BinaryOperator CGreaterThan <$ symbol ">")
-            , InfixL (BinaryOperator CGreaterThanEqual <$ symbol ">=")
+          , [ InfixL (BinaryOperator LessThan <$ symbol "<")
+            , InfixL (BinaryOperator LessThanEqual <$ symbol "<=")
+            , InfixL (BinaryOperator GreaterThan <$ symbol ">")
+            , InfixL (BinaryOperator GreaterThanEqual <$ symbol ">=")
             ]
-          , [ InfixL (BinaryOperator CEqual <$ symbol "==")
-            , InfixL (BinaryOperator CNotEqual <$ symbol "!=")
+          , [ InfixL (BinaryOperator Equal <$ symbol "==")
+            , InfixL (BinaryOperator NotEqual <$ symbol "!=")
             ]
-          , [ InfixL (BinaryOperator CAnd <$ symbol "&&")
+          , [ InfixL (BinaryOperator And <$ symbol "&&")
             ]
-          , [ InfixL (BinaryOperator COr <$ symbol "||")
+          , [ InfixL (BinaryOperator Or <$ symbol "||")
             ]
-          , [ InfixR (BinaryOperator CAssign <$ symbol "=")
+          , [ InfixR (BinaryOperator Assign <$ symbol "=")
             ]
           ]
 
