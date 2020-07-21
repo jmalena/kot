@@ -4,7 +4,11 @@
 {-# LANGUAGE TupleSections #-}
 
 module Language.Lizzie.Internal.Parser
-  ( test
+  ( AST
+  , Type(..)
+  , Top(..)
+  , Stmt(..)
+  , Expr(..)
   ) where
 
 import Control.Applicative hiding (many, some)
@@ -13,6 +17,7 @@ import Control.Monad.State
 
 import qualified Data.ByteString as B
 import qualified Data.ByteString.Short as B.Short
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Maybe
 import Data.Int
 import qualified Data.Set as Set
@@ -29,7 +34,10 @@ import qualified Text.Megaparsec.Byte.Lexer as Lexer
 -- Types
 
 type Symbol = B.Short.ShortByteString
-type Named = (Type, Symbol)
+type KnownSymbol = Maybe Symbol
+type UnknownSymbol = Maybe Symbol
+type Typed s = (Type, s)
+type AST = [Top]
 type Block = [Stmt]
 
 type Parser = ParsecT Void B.ByteString (State ParseState)
@@ -42,13 +50,9 @@ data ParseState = ParseState
 data Type
   = Void
   | Int8
-  | UInt8
   | Int16
-  | UInt16
   | Int32
-  | UInt32
   | Int64
-  | UInt64
   | Float32
   | Float64
   | Ptr Type
@@ -57,38 +61,33 @@ data Type
 instance Show Type where
   show Void    = "void"
   show Int8    = "int8"
-  show UInt8   = "uint8"
   show Int16   = "int16"
-  show UInt16  = "uint16"
   show Int32   = "int32"
-  show UInt32  = "uint32"
   show Int64   = "int64"
-  show UInt64  = "uint64"
   show Float32 = "float32"
   show Float64 = "float64"
   show (Ptr t) = "*" <> show t
 
-data Prog
-  = Function Named [Named] Block
+data Top
+  = Function (Typed UnknownSymbol) [Typed Symbol] Block
   deriving (Show)
 
 data Stmt
-  = If [(Expr, Block)]
+  = If (NonEmpty.NonEmpty (Expr, Block))
   | While Expr Block
   | For (Maybe Expr, Maybe Expr, Maybe Expr) Block
+  | VariableDefinition (Typed UnknownSymbol) (Maybe Expr)
   | Expr Expr
   | Return Expr
   deriving (Show)
 
 data Expr
-  = FunctionCall Symbol [Expr]
-  | VariableDefinition Named (Maybe Expr)
-  | VariableReference Symbol
+  = FunctionCall KnownSymbol [Expr]
+  | VariableReference KnownSymbol
+  | CharLiteral Word8
   | IntLiteral Int64
   | FloatLiteral Double
-  | CharLiteral Word8
   | StringLiteral B.Short.ShortByteString
-  | UnitLiteral
   | TypeCast Type Expr
   | UnaryOperator UnaryOperation Expr
   | BinaryOperator BinaryOperation Expr Expr
@@ -139,13 +138,16 @@ registerVariable k v = do
 lookupFunction :: (MonadState ParseState m) => Symbol -> m (Maybe (Type, [Type]))
 lookupFunction k = SymbolTable.lookup k <$> gets funSymbolTable
 
+lookupFunction' :: (MonadState ParseState m) => Symbol -> m (Type, [Type])
+lookupFunction' k = fromJust <$> lookupFunction k
+
 lookupVariable :: (MonadState ParseState m) => Symbol -> m (Maybe Type)
 lookupVariable k = SymbolTable.lookup k <$> gets varSymbolTable
 
 makeParseState :: ParseState
 makeParseState = ParseState SymbolTable.empty SymbolTable.empty
 
-parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [Prog]
+parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) AST
 parse s i = fst (runState (runParserT program s i) makeParseState)
 
 --------------------------------------------------------------------------------
@@ -166,23 +168,23 @@ identifier :: Parser Symbol
 identifier = B.Short.pack <$> lexeme parser <?> "identifier"
   where parser = (:) <$> letterChar <*> many alphaNumChar
 
-knownIdentifier :: (Symbol -> Parser Bool) -> (Symbol -> String) -> Parser Symbol
+knownIdentifier :: (Symbol -> Parser Bool) -> (Symbol -> String) -> Parser (Maybe Symbol)
 knownIdentifier f g = do
   s <- identifier
-  b <- f s
-  unless b $ registerError (g s)
-  pure s
+  f s >>= \case
+    True -> pure (Just s)
+    False -> registerError (g s) >> pure Nothing
 
-knownFunction :: Parser Symbol
+knownFunction :: Parser KnownSymbol
 knownFunction = knownIdentifier (\s -> isJust <$> lookupFunction s) (\s -> "Undefined function " <> show s <> ".")
 
-knownVariable :: Parser Symbol
+knownVariable :: Parser KnownSymbol
 knownVariable = knownIdentifier (\s -> isJust <$> lookupVariable s) (\s -> "Undefined variable " <> show s <> ".")
 
-unknownFunction :: Parser Symbol
+unknownFunction :: Parser UnknownSymbol
 unknownFunction = knownIdentifier (\s -> not . isJust <$> lookupFunction s) (\s -> "Function " <> show s <> " is already defined.")
 
-unknownVariable :: Parser Symbol
+unknownVariable :: Parser UnknownSymbol
 unknownVariable = knownIdentifier (\s -> not . isJust <$> lookupVariable s) (\s -> "Variable " <> show s <> " is already defined.")
 
 decimalLiteral :: Parser Int64
@@ -201,13 +203,9 @@ typeLiteral :: Parser Type
 typeLiteral = choice
   [ Void <$ symbol "void"
   , Int8 <$ symbol "int8"
-  , UInt8 <$ symbol "uint8"
   , Int16 <$ symbol "int16"
-  , UInt16 <$ symbol "uint16"
   , Int32 <$ symbol "int32"
-  , UInt32 <$ symbol "uint32"
   , Int64 <$ symbol "int64"
-  , UInt64 <$ symbol "uint64"
   , Float32 <$ symbol "float32"
   , Float64 <$ symbol "float64"
   ]
@@ -215,21 +213,22 @@ typeLiteral = choice
 --------------------------------------------------------------------------------
 -- Parser
 
-program :: Parser [Prog]
+program :: Parser AST
 program = many function <* eof
 
-function :: Parser Prog
+function :: Parser Top
 function = do
-  (t, s) <- namedFunction
+  (t, s) <- typed unknownFunction
   ps <- params
-  registerFunction s (t, fst <$> ps)
+  when (isJust s) $ registerFunction (fromJust s) (t, fst <$> ps)
   Function (t, s) ps <$> block <?> "function"
-  where params = parens (namedVariable' `sepBy` symbol ",")
+  where params = parens (typed identifier `sepBy` symbol ",")
 
 stmt :: Parser Stmt
 stmt = ifCondition
        <|> while
        <|> for
+       <|> variableDefinition
        <|> ret
        <|> (Expr <$> terminated expr)
 
@@ -249,6 +248,13 @@ for :: Parser Stmt
 for = For <$ symbol "for" <*> cond <*> block <?> "for loop"
   where cond = parens ((,,) <$> terminated (optional expr) <*> terminated (optional expr) <*> optional expr)
 
+variableDefinition :: Parser Stmt
+variableDefinition = terminated $ do
+  v@(t, s) <- typed unknownVariable
+  when (isJust s) $ registerVariable (fromJust s) t
+  (VariableDefinition v <$> optional value) <?> "variable definition"
+  where value = symbol "=" *> expr
+
 ret :: Parser Stmt
 ret = Return <$ symbol "return" <*> terminated expr <?> "return statement"
 
@@ -258,7 +264,6 @@ expr = makeExprParser term operatorTable
                <|> (IntLiteral <$> decimalLiteral <?> "number literal")
                <|> (CharLiteral <$> charLiteral <?> "character literal")
                -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
-               <|> variableDefinition
                <|> try functionCall
                <|> (UnaryOperator Dereference <$ symbol "*" <*> expr)
                <|> (UnaryOperator Not <$ symbol "!" <*> expr)
@@ -296,26 +301,16 @@ functionCall :: Parser Expr
 functionCall = (knownFunction >>= \s -> FunctionCall s <$> (args s)) <?> "function call"
   where args s = do
           xs <- parens (expr `sepBy` symbol ",")
-          lookupFunction s >>= \case
-            Just (_, ts) -> when (length xs /= length ts) $ registerError ("Function " <> show s <> " has arity " <> show (length ts) <> ", but " <> show (length xs) <> " arguments were given.")
-            Nothing -> pure ()
+          when (isJust s) $ do
+            (_, ts) <- lookupFunction' (fromJust s)
+            when (length ts /= length xs) $ registerError ("Function " <> show s <> " has arity " <> show (length ts) <> ", but " <> show (length xs) <> " arguments were given.")
           pure xs
-
-variableDefinition :: Parser Expr
-variableDefinition = namedVariable' >>= (\(t, s) -> VariableDefinition (t, s) <$> optional (value t)) <?> "variable definition"
-  where value t = symbol "=" *> expr
 
 --------------------------------------------------------------------------------
 -- Parser helpers
 
-namedFunction :: Parser Named
-namedFunction = (,) <$> typeLiteral <*> unknownFunction
-
-namedVariable :: Parser Named
-namedVariable = (,) <$> typeLiteral <*> unknownVariable
-
-namedVariable' :: Parser Named
-namedVariable' = namedVariable >>= \v@(t, s) -> registerVariable s t >> pure v
+typed :: Parser a -> Parser (Typed a)
+typed p = (,) <$> typeLiteral <*> p
 
 block :: Parser Block
 block = between (symbol "{") (symbol "}") (withScope (many stmt))
