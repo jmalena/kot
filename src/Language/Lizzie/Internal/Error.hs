@@ -15,4 +15,5 @@ data ParseError
   | RedefinedFunction Symbol
   | UndefinedVariable Symbol
   | RedefinedVariable Symbol
+  | UndefinedMain
   deriving (Eq, Show)

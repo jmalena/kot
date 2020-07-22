@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Language.Lizzie.Internal.SymbolTable
@@ -77,7 +78,12 @@ isVariableDefined k = SymTable.contains k <$> gets funSymTable
 
 buildSymTableProg :: (MonadState BuildSymTableState m, MonadError ParseError m)
                   => [SrcAnnDecl] -> m [SymSrcAnnDecl]
-buildSymTableProg = mapM buildSymTableDecl
+buildSymTableProg prog = do
+  ast <- mapM buildSymTableDecl prog
+  mainDefined <- isFunctionDefined "main"
+  unless mainDefined $
+    throwError UndefinedMain
+  pure ast
 
 buildSymTableDecl :: (MonadState BuildSymTableState m, MonadError ParseError m)
                   => SrcAnnDecl -> m SymSrcAnnDecl
