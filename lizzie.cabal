@@ -13,9 +13,11 @@ extra-source-files:  CHANGELOG.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:     Language.Lizzie.Internal.Codegen
+  exposed-modules:     Language.Lizzie.Internal.Annotation
+                       Language.Lizzie.Internal.AST                       
                        Language.Lizzie.Internal.Parser
                        Language.Lizzie.Internal.SymbolTable
+                       Language.Lizzie.Internal.Util.SymbolTable
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.13 && <4.14,

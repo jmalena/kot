@@ -2,107 +2,82 @@
 {-# LANGUAGE TupleSections #-}
 
 module Language.Lizzie.Internal.Parser
-  ( Symbol
-  , Type(..)
-  , Decl(..)
-  , Stmt(..)
-  , Expr(..)
+  ( SrcSpan
+  , SrcAnnDecl
+  , SrcAnnStmt
+  , SrcAnnExpr
+  , SrcAnnUnaryOp
+  , SrcAnnBinaryOp
+  , SrcAnnType
   , parse
-  , test
   ) where
 
-import Control.Applicative hiding (many, some)
+import Control.Applicative            hiding (many, some)
 import Control.Monad.Combinators.Expr
 
-import qualified Data.ByteString as B
+import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
-import qualified Data.List.NonEmpty as NonEmpty
-import Data.Int
-import Data.Void
-import Data.Word
+import           Data.Functor.Identity
+import           Data.Int
+import           Data.Void
+import           Data.Word
 
-import Text.Megaparsec hiding (parse)
-import Text.Megaparsec.Byte
+import Language.Lizzie.Internal.Annotation
+import Language.Lizzie.Internal.AST
+
+import           Text.Megaparsec            hiding (parse)
+import           Text.Megaparsec.Byte
 import qualified Text.Megaparsec.Byte.Lexer as Lexer
 
 --------------------------------------------------------------------------------
 -- Types
 
-type Symbol = B.Short.ShortByteString
-
 type Parser = Parsec Void B.ByteString
 
-data Type
-  = Void
-  | Int8
-  | Int16
-  | Int32
-  | Int64
-  | Float32
-  | Float64
-  | Ptr Type
-  deriving (Eq)
-
-instance Show Type where
-  show Void    = "void"
-  show Int8    = "int8"
-  show Int16   = "int16"
-  show Int32   = "int32"
-  show Int64   = "int64"
-  show Float32 = "float32"
-  show Float64 = "float64"
-  show (Ptr t) = "*" <> show t
-
-data Decl
-  = FunctionDeclaration Type Symbol [(Type, Symbol)] [Stmt]
-  deriving (Show)
-
-data Stmt
-  = If (NonEmpty.NonEmpty (Expr, [Stmt]))
-  | While Expr [Stmt]
-  | For (Maybe Expr, Maybe Expr, Maybe Expr) [Stmt]
-  | VariableDefinition Type Symbol (Maybe Expr)
-  | Expr Expr
-  | Return Expr
-  deriving (Show)
-
-data Expr
-  = FunctionCall Symbol [Expr]
-  | VariableReference Symbol
-  | CharLiteral Word8
-  | IntLiteral Int64
-  | FloatLiteral Double
-  | StringLiteral B.Short.ShortByteString
-  | TypeCast Type Expr
-  | UnaryOperator UnaryOperation Expr
-  | BinaryOperator BinaryOperation Expr Expr
-  deriving (Show)
-
-data UnaryOperation
-  = Negate
-  | Not
-  | Address
-  | Dereference
-  deriving (Eq, Show)
-
-data BinaryOperation
-  = Add
-  | Subtract
-  | Multiply
-  | Divide
-  | LessThan
-  | LessThanEqual
-  | GreaterThan
-  | GreaterThanEqual
-  | Equal
-  | NotEqual
-  | And
-  | Or
-  | Assign
-  deriving (Eq, Show)
-
-parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [Decl]
+parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [SrcAnnDecl]
 parse s i = runParser program s i
+
+--------------------------------------------------------------------------------
+-- Annotation
+
+data SrcSpan = SrcSpan SourcePos SourcePos
+
+type SrcAnn = Ann SrcSpan
+type SrcAnnFix f = Fix (SrcAnn f)
+
+type SrcAnnDecl  = SrcAnn Identity (Decl SrcAnnStmt SrcAnnType)
+
+type SrcAnnStmtF = StmtF SrcAnnExpr SrcAnnType
+type SrcAnnStmt  = SrcAnnFix SrcAnnStmtF
+
+type SrcAnnExprF = ExprF SrcAnnUnaryOp SrcAnnBinaryOp SrcAnnType
+type SrcAnnExpr  = SrcAnnFix SrcAnnExprF
+
+type SrcAnnUnaryOp = SrcAnn Identity UnaryOp
+
+type SrcAnnBinaryOp = SrcAnn Identity BinaryOp
+
+type SrcAnnType = SrcAnn Identity Type
+
+-- | Runs a parser that produces a source-annotated syntax tree and wraps it in
+-- another layer of source annotation.
+withSrcAnnFix
+    :: Parser (f (Fix (Ann SrcSpan f)))
+    -> Parser (Fix (Ann SrcSpan f))
+withSrcAnnFix = fmap Fix . withSrcAnn id
+
+withSrcAnn
+    :: (a -> f b) -- ^ A wrapping strategy for the parsed data
+    -> Parser a -- ^ The parser to annotate
+    -> Parser (SrcAnn f b) -- ^ A parser that produces an annotated result.
+withSrcAnn f p = do
+    p1 <- getSourcePos
+    x <- p
+    p2 <- getSourcePos
+    pure (Ann (SrcSpan p1 p2) (f x))
+
+withSrcAnnId :: Parser a -> Parser (SrcAnn Identity a)
+withSrcAnnId = withSrcAnn Identity
 
 --------------------------------------------------------------------------------
 -- Lexer
@@ -134,8 +109,116 @@ charLiteral = lexeme (between (char 39) (char 39) printChar)
 stringLiteral :: Parser B.Short.ShortByteString
 stringLiteral = undefined
 
-typeLiteral :: Parser Type
-typeLiteral = choice
+--------------------------------------------------------------------------------
+-- Parser
+
+program :: Parser [SrcAnnDecl]
+program = many declaration <* eof
+
+declaration :: Parser SrcAnnDecl
+declaration = functionDeclaration
+
+functionDeclaration :: Parser SrcAnnDecl
+functionDeclaration = withSrcAnnId $
+  FunctionDeclaration <$> type_ <*> identifier <*> params <*> block stmt
+  where params = parens (param `sepBy` symbol ",")
+        param = (,) <$> type_ <*> identifier
+
+stmt :: Parser SrcAnnStmt
+stmt = {-if_
+       <|> -}while
+       <|> for
+       <|> variableDefinition
+       <|> ret
+       <|> (withSrcAnnFix $ Expr <$> terminated expr)
+
+if_ = undefined
+{-
+if_ :: Parser SrcAnnStmt
+if_ = If <$> (NonEmpty.fromList branches)
+  where branches = try (liftA2 (<>) ifThenElse (branches <|> elseBranch))
+                   <|> ifThen
+        ifThen = symbol "if" *> pured branch
+        ifThenElse = ifThen <* symbol "else"
+        branch = (,) <$> parens expr <*> block stmt
+        elseBranch = pured ((IntLiteral 1,) <$> block stmt)
+-}
+
+while :: Parser SrcAnnStmt
+while = withSrcAnnFix $
+  While <$ symbol "while" <*> parens expr <*> block stmt
+
+for :: Parser SrcAnnStmt
+for = withSrcAnnFix $
+  For <$ symbol "for" <*> cond <*> block stmt
+  where cond = parens ((,,) <$> terminated (optional expr) <*> terminated (optional expr) <*> optional expr)
+
+variableDefinition :: Parser SrcAnnStmt
+variableDefinition = withSrcAnnFix $
+  terminated (VariableDefinition <$> type_ <*> identifier <*> optional value)
+  where value = symbol "=" *> expr
+
+ret :: Parser SrcAnnStmt
+ret = withSrcAnnFix $
+  Return <$ symbol "return" <*> terminated expr
+
+expr :: Parser SrcAnnExpr
+expr = makeExprParser term operatorTable
+  where operatorTable =
+          [ [ Prefix (id <$ symbol "+")
+            , Prefix (unary Negate (symbol "-"))
+            , Prefix (unary Dereference (symbol "*"))
+            , Prefix (unary Address (symbol "&"))
+            , Prefix (unary Not (symbol "!"))
+            ]
+          , [ InfixL (binary Multiply (symbol "*"))
+            , InfixL (binary Divide (symbol "/"))
+            ]
+          , [ InfixL (binary Add (symbol "+"))
+            , InfixL (binary Subtract (symbol "-"))
+            ]
+          , [ InfixL (binary LessThan (symbol "<"))
+            , InfixL (binary LessThanEqual (symbol "<="))
+            , InfixL (binary GreaterThan (symbol ">"))
+            , InfixL (binary GreaterThanEqual (symbol ">="))
+            ]
+          , [ InfixL (binary Equal (symbol "=="))
+            , InfixL (binary NotEqual (symbol "!="))
+            ]
+          , [ InfixL (binary And (symbol "&&"))
+            ]
+          , [ InfixL (binary Or (symbol "||"))
+            ]
+          , [ InfixR (binary Assign (symbol "="))
+            ]
+          ]
+        unary op tok = do
+          op <- withSrcAnnId (op <$ tok)
+          let (Ann (SrcSpan l1 _) _) = op
+          pure $ \e@(Fix (Ann (SrcSpan _ r2) _)) ->
+            Fix (Ann (SrcSpan l1 r2) (UnaryOperator op e))
+        binary op tok = do
+          op <- withSrcAnnId (op <$ tok)
+          pure $ \e1@(Fix (Ann (SrcSpan l1 _) _)) e2@(Fix (Ann (SrcSpan _ r2) _)) ->
+            Fix (Ann (SrcSpan l1 r2) (BinaryOperator op e1 e2))
+
+term :: Parser SrcAnnExpr
+term = try (withSrcAnnFix $ FloatLiteral <$> floatLiteral)
+       <|> (withSrcAnnFix $ IntLiteral <$> decimalLiteral)
+       <|> (withSrcAnnFix $ CharLiteral <$> charLiteral)
+       -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
+       <|> try functionCall
+       <|> (withSrcAnnFix $ VariableReference <$> identifier)
+       <|> try (withSrcAnnFix $ TypeCast <$> parens type_ <*> expr)
+       <|> parens expr
+
+functionCall :: Parser SrcAnnExpr
+functionCall = withSrcAnnFix $
+  FunctionCall <$> identifier <*> args
+  where args = parens (expr `sepBy` symbol ",")
+
+type_ :: Parser SrcAnnType
+type_ = withSrcAnnId $ choice
   [ Void <$ symbol "void"
   , Int8 <$ symbol "int8"
   , Int16 <$ symbol "int16"
@@ -144,94 +227,6 @@ typeLiteral = choice
   , Float32 <$ symbol "float32"
   , Float64 <$ symbol "float64"
   ]
-
---------------------------------------------------------------------------------
--- Parser
-
-program :: Parser [Decl]
-program = many declaration <* eof
-
-declaration :: Parser Decl
-declaration = functionDeclaration
-
-functionDeclaration :: Parser Decl
-functionDeclaration = (FunctionDeclaration <$> typeLiteral <*> identifier <*> params <*> block stmt) <?> "function"
-  where params = parens (param `sepBy` symbol ",")
-        param = (,) <$> typeLiteral <*> identifier
-
-stmt :: Parser Stmt
-stmt = ifCondition
-       <|> while
-       <|> for
-       <|> variableDefinition
-       <|> ret
-       <|> (Expr <$> terminated expr)
-
-ifCondition :: Parser Stmt
-ifCondition = If <$> branches <?> "if condition"
-  where branches = try (liftA2 (<>) ifThenElse (branches <|> elseBranch))
-                   <|> ifThen
-        ifThen = symbol "if" *> pured branch
-        ifThenElse = ifThen <* symbol "else"
-        branch = (,) <$> parens expr <*> block stmt
-        elseBranch = pured ((IntLiteral 1,) <$> block stmt)
-
-while :: Parser Stmt
-while = While <$ symbol "while" <*> parens expr <*> block stmt <?> "while loop"
-
-for :: Parser Stmt
-for = For <$ symbol "for" <*> cond <*> block stmt <?> "for loop"
-  where cond = parens ((,,) <$> terminated (optional expr) <*> terminated (optional expr) <*> optional expr)
-
-variableDefinition :: Parser Stmt
-variableDefinition = terminated (VariableDefinition <$> typeLiteral <*> identifier <*> optional value) <?> "variable definition"
-  where value = symbol "=" *> expr
-
-ret :: Parser Stmt
-ret = Return <$ symbol "return" <*> terminated expr <?> "return statement"
-
-expr :: Parser Expr
-expr = makeExprParser term operatorTable
-  where term = try (FloatLiteral <$> floatLiteral <?> "float literal")
-               <|> (IntLiteral <$> decimalLiteral <?> "number literal")
-               <|> (CharLiteral <$> charLiteral <?> "character literal")
-               -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
-               <|> try functionCall
-               <|> (UnaryOperator Dereference <$ symbol "*" <*> expr)
-               <|> (UnaryOperator Not <$ symbol "!" <*> expr)
-               <|> (VariableReference <$> identifier <?> "variable reference")
-               <|> try (TypeCast <$> parens typeLiteral <*> expr <?> "type casting")
-               <|> parens expr
-        operatorTable =
-          [ [ Prefix (id <$ symbol "+")
-            , Prefix (UnaryOperator Negate <$ symbol "-")
-            , Prefix (UnaryOperator Address <$ symbol "&")
-            ]
-          , [ InfixL (BinaryOperator Multiply <$ symbol "*")
-            , InfixL (BinaryOperator Divide <$ symbol "/")
-            ]
-          , [ InfixL (BinaryOperator Add <$ symbol "+")
-            , InfixL (BinaryOperator Subtract <$ symbol "-")
-            ]
-          , [ InfixL (BinaryOperator LessThan <$ symbol "<")
-            , InfixL (BinaryOperator LessThanEqual <$ symbol "<=")
-            , InfixL (BinaryOperator GreaterThan <$ symbol ">")
-            , InfixL (BinaryOperator GreaterThanEqual <$ symbol ">=")
-            ]
-          , [ InfixL (BinaryOperator Equal <$ symbol "==")
-            , InfixL (BinaryOperator NotEqual <$ symbol "!=")
-            ]
-          , [ InfixL (BinaryOperator And <$ symbol "&&")
-            ]
-          , [ InfixL (BinaryOperator Or <$ symbol "||")
-            ]
-          , [ InfixR (BinaryOperator Assign <$ symbol "=")
-            ]
-          ]
-
-functionCall :: Parser Expr
-functionCall = (FunctionCall <$> identifier <*> args) <?> "function call"
-  where args = parens (expr `sepBy` symbol ",")
 
 --------------------------------------------------------------------------------
 -- Parser helpers
@@ -250,11 +245,3 @@ terminated p = p <* symbol ";"
 
 pured :: (Applicative f1, Applicative f2) => f1 a -> f1 (f2 a)
 pured = (<$>) pure
-
---------------------------------------------------------------------------------
--- Debug
-
-test i =
-  case parse "test" i of
-    Left err -> putStrLn $ errorBundlePretty err
-    Right ast -> putStrLn $ show ast
