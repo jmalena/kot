@@ -3,7 +3,9 @@ module Language.Lizzie.Internal.Util.SymbolTable
   , empty
   , insert
   , lookup
+  , lookup'
   , contains
+  , containsTop
   , push
   ) where
 
@@ -25,8 +27,15 @@ insert k v (x NonEmpty.:| xs) = NonEmpty.fromList ((Map.insert k v x):xs)
 lookup :: (Ord k) => k -> SymbolTable k v -> Maybe v
 lookup k tab = asum (NonEmpty.map (Map.lookup k) tab)
 
+lookup' :: (Ord k) => k -> SymbolTable k v -> v
+lookup' k tab = fromJust (lookup k tab)
+
 contains :: (Ord k) => k -> SymbolTable k v -> Bool
 contains k tab = isJust (lookup k tab)
+
+-- | Check if symbol is present in current scope.
+containsTop :: (Ord k) => k -> SymbolTable k v -> Bool
+containsTop k tab = Map.member k (NonEmpty.head tab)
 
 push :: SymbolTable k v -> SymbolTable k v
 push = NonEmpty.cons Map.empty

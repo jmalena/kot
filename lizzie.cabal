@@ -17,6 +17,7 @@ library
                        Language.Lizzie.Internal.AST                       
                        Language.Lizzie.Internal.Parser
                        Language.Lizzie.Internal.SymbolTable
+                       Language.Lizzie.Internal.Typecheck
                        Language.Lizzie.Internal.Util.SymbolTable
   -- other-modules:
   -- other-extensions:

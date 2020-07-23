@@ -2,13 +2,15 @@
 {-# LANGUAGE TupleSections #-}
 
 module Language.Lizzie.Internal.Parser
-  ( SrcSpan
+  ( SrcAnn
+  , SrcAnnFix
   , SrcAnnDecl
   , SrcAnnStmt
   , SrcAnnExpr
   , SrcAnnUnaryOp
   , SrcAnnBinaryOp
   , SrcAnnType
+  , SrcSpan
   , parse
   ) where
 
@@ -96,6 +98,12 @@ symbol s = B.Short.toShort <$> Lexer.symbol spaceConsumer s
 identifier :: Parser Symbol
 identifier = B.Short.pack <$> lexeme parser <?> "identifier"
   where parser = (:) <$> letterChar <*> many alphaNumChar
+
+boolLiteral :: Parser Bool
+boolLiteral = choice
+  [ False <$ symbol "false"
+  , True <$ symbol "true"
+  ]
 
 decimalLiteral :: Parser Int64
 decimalLiteral = lexeme Lexer.decimal
@@ -207,6 +215,7 @@ term = try (withSrcAnnFix $ FloatLiteral <$> floatLiteral)
        <|> (withSrcAnnFix $ IntLiteral <$> decimalLiteral)
        <|> (withSrcAnnFix $ CharLiteral <$> charLiteral)
        -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
+       <|> (withSrcAnnFix $ BoolLiteral <$> boolLiteral)
        <|> try functionCall
        <|> (withSrcAnnFix $ VariableReference <$> identifier)
        <|> try (withSrcAnnFix $ TypeCast <$> parens type_ <*> expr)
@@ -220,6 +229,7 @@ functionCall = withSrcAnnFix $
 type_ :: Parser SrcAnnType
 type_ = withSrcAnnId $ choice
   [ Void <$ symbol "void"
+  , Bool <$ symbol "bool"
   , Int8 <$ symbol "int8"
   , Int16 <$ symbol "int16"
   , Int32 <$ symbol "int32"

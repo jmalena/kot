@@ -4,6 +4,7 @@ module Language.Lizzie.Internal.Error
   ) where
 
 import qualified Data.ByteString.Short as B.Short
+import qualified Data.Set              as Set
 
 import Language.Lizzie.Internal.AST
 
@@ -11,9 +12,11 @@ import Language.Lizzie.Internal.AST
 -- Types
 
 data ParseError
-  = UndefinedFunction Symbol
+  = UndefinedFunctionReference Symbol
+  | UndefinedVariableReference Symbol
   | RedefinedFunction Symbol
-  | UndefinedVariable Symbol
   | RedefinedVariable Symbol
   | UndefinedMain
+  | FunctionCallBadArity Symbol Int Int
+  | UnexpectedType (Set.Set Type) Type
   deriving (Eq, Show)

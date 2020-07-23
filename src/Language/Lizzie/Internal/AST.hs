@@ -20,7 +20,7 @@ type Symbol = B.Short.ShortByteString
 
 data Decl stmt type_
   = FunctionDeclaration type_ Symbol [(type_, Symbol)] [stmt]
-  deriving (Show)
+  deriving (Eq, Ord, Show)
 
 data StmtF expr type_ f
   = If (NonEmpty.NonEmpty (expr, [f]))
@@ -29,11 +29,12 @@ data StmtF expr type_ f
   | VariableDefinition type_ Symbol (Maybe expr)
   | Expr expr
   | Return expr
-  deriving (Show)
+  deriving (Eq, Ord, Show)
 
 data ExprF unaryOp binaryOp type_ f
   = FunctionCall Symbol [f]
   | VariableReference Symbol
+  | BoolLiteral Bool
   | CharLiteral Word8
   | IntLiteral Int64
   | FloatLiteral Double
@@ -41,14 +42,14 @@ data ExprF unaryOp binaryOp type_ f
   | TypeCast type_ f
   | UnaryOperator unaryOp f
   | BinaryOperator binaryOp f f
-  deriving (Show)
+  deriving (Eq, Ord, Show)
 
 data UnaryOp
   = Negate
   | Not
   | Address
   | Dereference
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data BinaryOp
   = Add
@@ -64,10 +65,11 @@ data BinaryOp
   | And
   | Or
   | Assign
-  deriving (Eq, Show)
+  deriving (Eq, Ord, Show)
 
 data Type
   = Void
+  | Bool
   | Int8
   | Int16
   | Int32
@@ -75,10 +77,11 @@ data Type
   | Float32
   | Float64
   | Ptr Type
-  deriving (Eq)
+  deriving (Eq, Ord)
 
 instance Show Type where
   show Void    = "void"
+  show Bool    = "bool"
   show Int8    = "int8"
   show Int16   = "int16"
   show Int32   = "int32"
