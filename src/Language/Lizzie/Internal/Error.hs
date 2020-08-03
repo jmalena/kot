@@ -19,4 +19,5 @@ data ParseError
   | UndefinedMain
   | FunctionCallBadArity Symbol Int Int
   | UnexpectedType (Set.Set Type) Type
+  | ExpectLValueExpression
   deriving (Eq, Show)

@@ -18,11 +18,11 @@ import Control.Monad.State
 import           Data.Functor.Identity
 import qualified Data.List.NonEmpty    as NonEmpty
 
-import Language.Lizzie.Internal.AST
-import Language.Lizzie.Internal.Annotation
-import Language.Lizzie.Internal.Error
-import Language.Lizzie.Internal.Parser
-import Language.Lizzie.Internal.Util.SymbolTable as SymTable
+import           Language.Lizzie.Internal.AST
+import           Language.Lizzie.Internal.Annotation
+import           Language.Lizzie.Internal.Error
+import           Language.Lizzie.Internal.Parser
+import qualified Language.Lizzie.Internal.Util.SymbolTable as SymTable
 
 --------------------------------------------------------------------------------
 -- Annotation

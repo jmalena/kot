@@ -6,6 +6,7 @@ module Language.Lizzie.Internal.Typecheck
   , TypAnnDecl
   , TypAnnStmt
   , TypAnnExpr
+  , typeAnnF
   , typecheck
   ) where
 
@@ -16,16 +17,14 @@ import           Data.Functor.Identity
 import           Data.Foldable
 import qualified Data.List.NonEmpty    as NonEmpty
 import           Data.Maybe
-import qualified Data.Set              as Set
 
 import           Language.Lizzie.Internal.AST
 import           Language.Lizzie.Internal.Annotation
 import           Language.Lizzie.Internal.Error
 import           Language.Lizzie.Internal.Parser
 import           Language.Lizzie.Internal.SymbolTable
-import qualified Language.Lizzie.Internal.Util.SymbolTable as SymTable
-
-import Debug.Trace
+import qualified Language.Lizzie.Internal.Util.SymbolTable    as SymTable
+import           Language.Lizzie.Internal.Util.Type
 
 --------------------------------------------------------------------------------
 -- Annotation
@@ -41,11 +40,14 @@ type TypAnnStmt  = SymAnnFix TypAnnStmtF
 type TypAnnExprF = ExprF SrcAnnUnaryOp SrcAnnBinaryOp SrcAnnType
 type TypAnnExpr  = TypAnnFix TypAnnExprF
 
+typeAnnF :: Fix (Ann (a, b, c, d) f) -> d
+typeAnnF (Fix (Ann (_, _, _, t) _)) = t
+
 --------------------------------------------------------------------------------
 -- Monad
 
 data TypecheckState = TypecheckState
-  { returnType :: Maybe Type
+  { funReturnType :: Maybe Type
   }
 
 makeTypecheckState :: TypecheckState
@@ -57,17 +59,18 @@ typecheck prog = evalStateT (typecheckProg prog) makeTypecheckState
 
 withReturnType :: (MonadState TypecheckState m) => Type -> m a -> m a
 withReturnType t m = do
-  modify $ \s -> s { returnType = Just t }
+  modify $ \s -> s { funReturnType = Just t }
   x <- m
-  modify $ \s -> s { returnType = Nothing }
+  modify $ \s -> s { funReturnType = Nothing }
   pure x
 
 assertReturnTypeTop :: (MonadState TypecheckState m, MonadError ParseError m)
                     => Maybe Type -> m ()
 assertReturnTypeTop t = do
-  rt <- fromJust <$> gets returnType
+  rt <- fromJust <$> gets funReturnType
   case t of
     Nothing -> assertType (ofType rt) Void
+    Just t | rt `hasType` void -> assertType void t
     Just t | rt `hasType` bool -> assertType bool t
     Just t | rt `hasType` number -> assertType number t
     Just t | rt `hasType` pointer -> assertType (ofType rt `orType` number) t
@@ -106,19 +109,19 @@ typecheckStmt :: (MonadState TypecheckState m, MonadError ParseError m)
 typecheckStmt (Fix (Ann ann stmt)) = case stmt of
   If branches -> do
     branches' <- forM (NonEmpty.toList branches) $ \(cond, body) -> do
-      cond' <- typecheckExpr cond
+      cond' <- typecheckExpr cond -- TODO: assert cond is bool
       (t, body') <- typecheckBlock body
       assertReturnTypeNested t
       pure (cond', body')
     retFix Nothing (If (NonEmpty.fromList branches'))
   While cond body -> do
-    cond' <- typecheckExpr cond
+    cond' <- typecheckExpr cond -- TODO: assert cond is bool
     (t, body') <- typecheckBlock body
     assertReturnTypeNested t
     retFix Nothing (While cond' body')
   For (pre, cond, post) body -> do
     pre' <- mapM typecheckExpr pre
-    cond' <- mapM typecheckExpr cond
+    cond' <- mapM typecheckExpr cond -- TODO: assert cond is bool (or empty)
     post' <- mapM typecheckExpr post
     (t, body') <- typecheckBlock body
     assertReturnTypeNested t
@@ -130,8 +133,8 @@ typecheckStmt (Fix (Ann ann stmt)) = case stmt of
     e' <- typecheckExpr e
     retFix Nothing (Expr e')
   Return e -> do
-    e'@(Fix (Ann (_, _, _, t) _)) <- typecheckExpr e
-    retFix (Just t) (Return e') -- TODO: typecast to return type of function
+    e' <- typecheckExpr e
+    retFix (Just (typeAnnF e')) (Return e')
   where retFix t x = pure (t, Fix (Ann ann x))
 
 typecheckExpr :: (MonadState TypecheckState m, MonadError ParseError m)
@@ -152,10 +155,12 @@ typecheckExpr (Fix (Ann (pos, ft, vt) expr)) = case expr of
   FloatLiteral a -> retFix Float64 (FloatLiteral a)
   StringLiteral s -> retFix (Ptr Int8) (StringLiteral s)
   TypeCast t e -> do
+    -- TODO: check for typeable rules (e.g. "(int32)true" is invalid)
     e' <- typecheckExpr e
     retFix (bareId t) (TypeCast t e')
   UnaryOperator op e -> do
-    e'@(Fix (Ann (_, _, _, pt) _)) <- typecheckExpr e
+    e' <- typecheckExpr e
+    let pt = typeAnnF e'
     t <- case bareId op of
       Not -> assertType (ofType Bool) pt >> pure Bool
       Negate -> assertType number pt >> pure pt
@@ -166,69 +171,47 @@ typecheckExpr (Fix (Ann (pos, ft, vt) expr)) = case expr of
         pure pt'
     retFix t (UnaryOperator op e')
   BinaryOperator op e1 e2 -> do
-    e1'@(Fix (Ann (_, _, _, pt1) _)) <- typecheckExpr e1
-    e2'@(Fix (Ann (_, _, _, pt2) _)) <- typecheckExpr e2
-    t <- case bareId op of
+    e1' <- typecheckExpr e1
+    e2' <- typecheckExpr e2
+    let pt1 = typeAnnF e1'
+    let pt2 = typeAnnF e2'
+    case bareId op of
       x | x `elem` [And, Or] -> do
             assertType bool pt1
             assertType bool pt2
-            pure Bool
+            retFix Bool (BinaryOperator op e1' e2')
       x | x `elem` [LessThan, LessThanEqual, GreaterThan, GreaterThanEqual] -> do
             -- TODO: add pointer arithmetic
             assertType number pt1
             assertType number pt2
-            pure Bool
+            retFix Bool (BinaryOperator op e1' e2')
       x | x `elem` [Add, Subtract] -> do
             -- TODO: add pointer arithmetic
+            let t = joinNumberTypes pt1 pt2
             assertType number pt1
             assertType number pt2
-            pure (joinNumberType pt1 pt2)
+            retFix (fromJust t) (BinaryOperator op e1' e2')
       x | x `elem` [Multiply, Divide] -> do
+            let t = joinNumberTypes pt1 pt2
             assertType number pt1
             assertType number pt2
-            pure (joinNumberType pt1 pt2)
-      x | x `elem` [Equal, NotEqual] -> undefined -- TODO: typecheck == and !=
-      Assign -> undefined -- TODO: typecheck assignment
-    retFix t (BinaryOperator op e1' e2')
+            retFix (fromJust t) (BinaryOperator op e1' e2')
+      x | x `elem` [Equal, NotEqual] ->
+          undefined -- TODO: typecheck == and !=
+      Assign -> do
+        -- TODO: add bool and pointer assignment
+        let t = joinNumberTypes pt1 pt2
+        unless (isLValueF e1') $ throwError ExpectLValueExpression
+        retFix (fromJust t) (BinaryOperator op e1' e2')
   where retFix t x = pure (Fix (Ann (pos, ft, vt, t) x))
 
 --------------------------------------------------------------------------------
 -- Helpers
 
-joinNumberType :: Type -> Type -> Type
-joinNumberType t1 t2 = if rank t1 > rank t2 then t1 else t2
-  where rank t = fromJust (lookup t [(Int8, 0), (Int16, 1), (Int32, 2), (Int64, 3), (Float32, 4), (Float64, 5)])
-
-type TypecheckPredicate = (Type -> Set.Set Type, Type -> Bool)
-
-hasType :: Type -> TypecheckPredicate -> Bool
-hasType t (_, f) = f t
-
-assertType :: (MonadError ParseError m) => TypecheckPredicate -> Type -> m ()
+assertType :: (MonadError ParseError m) => TypePredicate -> Type -> m ()
 assertType (e, f) t = unless (f t) $ throwError (UnexpectedType (e t) t)
 
-ofType :: Type -> TypecheckPredicate
-ofType t = (const (Set.singleton t), \t' -> t == t')
-
-orType :: TypecheckPredicate -> TypecheckPredicate -> TypecheckPredicate
-(e1, f1) `orType` (e2, f2) = (\t -> Set.union (e1 t) (e2 t), \t -> f1 t || f2 t)
-
-void :: TypecheckPredicate
-void = ofType Void
-
-bool :: TypecheckPredicate
-bool = ofType Bool
-
-int :: TypecheckPredicate
-int = (const ts, flip Set.member ts)
-  where ts = Set.fromList [Int8, Int16, Int32, Int64]
-
-float :: TypecheckPredicate
-float = (const ts, flip Set.member ts)
-  where ts = Set.fromList [Float32, Float64]
-
-number :: TypecheckPredicate
-number = int `orType` float
-
-pointer :: TypecheckPredicate
-pointer = (\t -> Set.singleton (Ptr t), \t -> case t of { Ptr _ -> True; _ -> False })
+isLValueF :: Fix (Ann x (ExprF a b c)) -> Bool
+isLValueF (Fix (Ann _ expr)) = case expr of
+  VariableReference _ -> True
+  _                   -> False
