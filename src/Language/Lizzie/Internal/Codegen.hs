@@ -22,10 +22,12 @@ import qualified Language.Lizzie.Internal.Util.SymbolTable    as SymTable
 import qualified Language.Lizzie.Internal.Util.Type as T
 
 import           LLVM.AST hiding (function)
-import qualified LLVM.AST.Type                     as LT
 import qualified LLVM.AST.Constant                 as C
-import qualified LLVM.AST.IntegerPredicate         as IP
+import           LLVM.AST.Float
 import qualified LLVM.AST.FloatingPointPredicate   as FP
+import qualified LLVM.AST.IntegerPredicate         as IP
+import           LLVM.AST.Operand
+import qualified LLVM.AST.Type                     as LT
 import           LLVM.Context
 import           LLVM.Module
 import           LLVM.Target
@@ -42,9 +44,9 @@ import Debug.Trace
 type CGModule = ModuleBuilderT (State CGModuleState)
 
 data CGModuleState = CGModuleState
-  { funOperands :: SymTable.SymbolTable AST.Symbol Operand
-  , varOperands :: SymTable.SymbolTable AST.Symbol Operand
-  , funReturnType :: Maybe AST.Type
+  { funAddrs :: SymTable.SymbolTable AST.Symbol Operand
+  , varAddrs :: SymTable.SymbolTable AST.Symbol Operand
+  , returnType :: Maybe AST.Type
   }
 
 type CGBlock = IRBuilderT CGModule
@@ -66,34 +68,39 @@ codegen s ast = do
 
 withScope :: (MonadState CGModuleState m) => m a -> m a
 withScope f = do
-  ft <- gets funOperands
-  vt <- gets varOperands
-  modify $ \s -> s { funOperands = SymTable.push ft, varOperands = SymTable.push vt }
+  ft <- gets funAddrs
+  vt <- gets varAddrs
+  modify $ \s -> s { funAddrs = SymTable.push ft, varAddrs = SymTable.push vt }
   res <- f
-  modify $ \s -> s { funOperands = ft, varOperands = vt }
+  modify $ \s -> s { funAddrs = ft, varAddrs = vt }
   pure res
 
-setFunOperand :: (MonadState CGModuleState m) => AST.Symbol -> Operand -> m ()
-setFunOperand k v = do
-  tab <- gets funOperands
-  modify $ \s -> s { funOperands = SymTable.insert k v tab }
+setFunAddr :: (MonadState CGModuleState m) => AST.Symbol -> Operand -> m ()
+setFunAddr k v = do
+  tab <- gets funAddrs
+  modify $ \s -> s { funAddrs = SymTable.insert k v tab }
 
-setVarOperand :: (MonadState CGModuleState m) => AST.Symbol -> Operand -> m ()
-setVarOperand k v = do
-  tab <- gets varOperands
-  modify $ \s -> s { varOperands = SymTable.insert k v tab }
+setVarAddr :: (MonadState CGModuleState m) => AST.Symbol -> Operand -> m ()
+setVarAddr k v = do
+  tab <- gets varAddrs
+  modify $ \s -> s { varAddrs = SymTable.insert k v tab }
 
-getFunOperand :: (MonadState CGModuleState m) => AST.Symbol -> m Operand
-getFunOperand k = SymTable.lookup' k <$> gets funOperands
+getFunAddr :: (MonadState CGModuleState m) => AST.Symbol -> m Operand
+getFunAddr k = SymTable.lookup' k <$> gets funAddrs
 
-getVarOperand :: (MonadState CGModuleState m) => AST.Symbol -> m Operand
-getVarOperand k = SymTable.lookup' k <$> gets varOperands
+getVarAddr :: (MonadState CGModuleState m) => AST.Symbol -> m Operand
+getVarAddr k = SymTable.lookup' k <$> gets varAddrs
 
-withReturnType :: (MonadState CGModuleState m) => AST.Type -> m a -> m a
-withReturnType t m = do
-  modify $ \s -> s { funReturnType = Just t }
+getLValueAddr :: (MonadState CGModuleState m) => TypAnnExpr -> m Operand
+getLValueAddr (Fix (Ann _ expr)) = case expr of
+  AST.VariableReference s                                 -> getVarAddr s
+  AST.UnaryOperator (Ann _ (Identity AST.Dereference)) e' -> getLValueAddr e'
+
+withReturn :: (MonadState CGModuleState m) => AST.Type -> m a -> m a
+withReturn t m = do
+  modify $ \s -> s { returnType = Just t }
   x <- m
-  modify $ \s -> s { funReturnType = Nothing }
+  modify $ \s -> s { returnType = Nothing }
   pure x
 
 --------------------------------------------------------------------------------
@@ -106,21 +113,46 @@ codegenDecl :: TypAnnDecl -> CGModule ()
 codegenDecl (Ann _ (Identity decl)) = case decl of
   AST.FunctionDeclaration t s args body ->
     let llvmArgs = (\(t, s) -> (toLLVMType (bareId t), NoParameterName)) <$> args
-    in void $ function (Name s) llvmArgs (toLLVMType (bareId t)) $ \argOps ->
-      withScope $ do
-        forM (zip args argOps) $ \((argType, argName), argOp) -> do
-          addr <- alloca (toLLVMType (bareId argType)) Nothing 0
-          --store addr 0 argOp -- TODO: init default value of args
-          setVarOperand argName addr
-        withReturnType (bareId t) $
-          codegenBlock body
+    in mdo
+      addr <- function (Name s) llvmArgs (toLLVMType (bareId t)) $ \argOps -> do
+        setFunAddr s addr
+        withScope $ do
+          forM (zip args argOps) $ \((argType, argName), argOp) -> do
+            addr <- alloca (toLLVMType (bareId argType)) Nothing 0
+            store addr 0 argOp
+            setVarAddr argName addr
+          withReturn (bareId t) $
+            codegenBlock body
+      pure ()
 
 codegenBlock :: [TypAnnStmt] -> CGBlock ()
 codegenBlock body = withScope $ mapM_ codegenStmt body
 
 codegenStmt :: TypAnnStmt -> CGBlock ()
 codegenStmt (Fix (Ann _ stmt)) = case stmt of
-  AST.If branches -> undefined
+  AST.If branches -> mdo
+    forM branches $ \(cond, body) -> mdo
+      case cond of
+        Just condExpr -> do
+          condExpr' <- codegenExpr condExpr
+          condBr condExpr' bodyBlock testBlock
+        Nothing ->
+          br bodyBlock
+      -- body block
+      ---------------
+      bodyBlock <- block
+      codegenBlock body
+      --hasTerm <- hasTerminator
+      --unless hasTerm $ br exitBlock
+      -- test block
+      ---------------
+      testBlock <- block
+      pure ()
+    -- exit block
+    ---------------
+    br exitBlock
+    exitBlock <- block
+    pure ()
   AST.While cond body -> undefined
   AST.For (pre, cond, post) body -> mdo
     when (isJust pre) $ void (codegenExpr (fromJust pre))
@@ -128,7 +160,7 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
     -- test block
     ---------------
     testBlock <- block
-    cond' <- maybe (pure true) codegenExpr cond
+    cond' <- maybe (pure (constBool True)) codegenExpr cond
     condBr cond' bodyBlock exitBlock
     -- body block
     ---------------
@@ -144,32 +176,47 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
     addr <- alloca (toLLVMType (bareId t)) Nothing 0
     when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr 0
     -- TODO: init default value of expression
-    setVarOperand s addr
+    setVarAddr s addr
   AST.Expr e -> void $ codegenExpr e
   AST.Return e -> do
-    t <- fromJust <$> gets funReturnType
+    t <- fromJust <$> gets returnType
     e' <- codegenExprWithCast t e
     ret e'
 
 codegenExpr :: TypAnnExpr -> CGBlock Operand
-codegenExpr (Fix (Ann _ expr)) = case expr of
-  AST.FunctionCall s args -> undefined
+codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
+  AST.FunctionCall s args -> do
+    let (_, sig) = SymTable.lookup' s ft
+    addr <- getFunAddr s
+    args' <- forM (zip sig args) $ \(t, arg) -> do
+      arg' <- codegenExprWithCast t arg
+      pure (arg', [])
+    call addr args'
   AST.VariableReference s -> do
-    addr <- getVarOperand s
+    addr <- getVarAddr s
     load addr 0
-  AST.BoolLiteral False -> pure false
-  AST.BoolLiteral True -> pure true
-  AST.CharLiteral a -> undefined
-  AST.IntLiteral a -> pure $ int64 (fromIntegral a)
-  AST.FloatLiteral a -> pure $ double a
+  AST.BoolLiteral False -> pure (constBool False)
+  AST.BoolLiteral True -> pure (constBool True)
+  AST.CharLiteral a -> pure $ int8 (fromIntegral a)
+  AST.IntLiteral a -> pure $ constInt t (fromIntegral a)
+  AST.FloatLiteral a -> pure $ constFloat t a
   AST.StringLiteral s -> undefined
   AST.TypeCast t e -> codegenExprWithCast (bareId t) e
   AST.UnaryOperator op e ->
     case bareId op of
-      AST.Negate -> undefined
-      AST.Not -> codegenExpr e >>= xor true
-      AST.Address -> undefined
-      AST.Dereference -> undefined
+      AST.Negate -> do
+        e' <- codegenExpr e
+        case typeAnnF e of
+          t | t `T.hasType` T.int   -> sub (constInt t 0) e'
+          t | t `T.hasType` T.float -> fsub (constFloat t 0) e'
+      AST.Not ->
+        codegenExpr e >>= xor (constBool True)
+      AST.Address ->
+        getLValueAddr e
+      AST.Dereference -> do
+        addr <- getLValueAddr e
+        addr' <- load addr 0
+        load addr' 0
   AST.BinaryOperator op e1 e2 -> do
     let jt = fromJust $ T.joinNumberTypes (typeAnnF e1) (typeAnnF e2)
     case bareId op of
@@ -230,11 +277,9 @@ codegenExpr (Fix (Ann _ expr)) = case expr of
       AST.Or ->
         undefined
       AST.Assign -> do
-        let (Fix (Ann _ (AST.VariableReference s))) = e1
         e2' <- codegenExprWithCast (typeAnnF e1) e2
-        laddr <- getVarOperand s
-        traceShowM laddr
-        store laddr 0 e2'
+        addr <- getLValueAddr e1
+        store addr 0 e2'
         pure e2'
 
 codegenExprWithCast :: AST.Type -> TypAnnExpr -> CGBlock Operand
@@ -263,11 +308,19 @@ codegenExprWithCast t' e@(Fix (Ann (_, _, _, t) _)) = do
 --------------------------------------------------------------------------------
 -- Codegen helpers
 
-false :: Operand
-false = ConstantOperand (C.Int 1 0)
+constBool :: Bool -> Operand
+constBool False = ConstantOperand (C.Int 1 0)
+constBool True  = ConstantOperand (C.Int 1 1)
 
-true :: Operand
-true = ConstantOperand (C.Int 1 1)
+constInt :: AST.Type -> Integer -> Operand
+constInt AST.Int8    = ConstantOperand . C.Int 8
+constInt AST.Int16   = ConstantOperand . C.Int 16
+constInt AST.Int32   = ConstantOperand . C.Int 32
+constInt AST.Int64   = ConstantOperand . C.Int 64
+
+constFloat :: AST.Type -> Double -> Operand
+constFloat AST.Float32 = ConstantOperand . C.Float . Single . realToFrac
+constFloat AST.Float64 = ConstantOperand . C.Float . Double . realToFrac
 
 toLLVMType :: AST.Type -> LT.Type
 toLLVMType AST.Void    = LT.void

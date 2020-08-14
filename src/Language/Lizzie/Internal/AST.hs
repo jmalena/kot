@@ -23,7 +23,7 @@ data Decl stmt type_
   deriving (Eq, Ord, Show)
 
 data StmtF expr type_ f
-  = If (NonEmpty.NonEmpty (expr, [f]))
+  = If (NonEmpty.NonEmpty (Maybe expr, [f]))
   | While expr [f]
   | For (Maybe expr, Maybe expr, Maybe expr) [f]
   | VariableDefinition type_ Symbol (Maybe expr)
@@ -88,4 +88,4 @@ instance Show Type where
   show Int64   = "int64"
   show Float32 = "float32"
   show Float64 = "float64"
-  show (Ptr t) = "*" <> show t
+  show (Ptr t) = show t <> "*"

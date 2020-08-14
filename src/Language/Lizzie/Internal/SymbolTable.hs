@@ -118,7 +118,7 @@ buildSymTableStmt :: (MonadState BuildSymTableState m, MonadError ParseError m)
 buildSymTableStmt (Fix (Ann pos stmt)) = case stmt of
   If branches -> do
     branches' <- forM (NonEmpty.toList branches) $ \(cond, body) -> do
-      cond' <- buildSymTableExpr cond
+      cond' <- mapM buildSymTableExpr cond
       withScope $ do
         body' <- mapM buildSymTableStmt body
         pure (cond', body')

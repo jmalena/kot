@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -21,6 +22,8 @@ import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
 import           Data.Functor.Identity
 import           Data.Int
+import qualified Data.List.NonEmpty    as NonEmpty
+import           Data.Maybe
 import           Data.Void
 import           Data.Word
 
@@ -133,24 +136,22 @@ functionDeclaration = withSrcAnnId $
         param = (,) <$> type_ <*> identifier
 
 stmt :: Parser SrcAnnStmt
-stmt = {-if_
-       <|> -}while
+stmt = if_
+       <|> while
        <|> for
        <|> variableDefinition
        <|> ret
        <|> (withSrcAnnFix $ Expr <$> terminated expr)
 
-if_ = undefined
-{-
 if_ :: Parser SrcAnnStmt
-if_ = If <$> (NonEmpty.fromList branches)
-  where branches = try (liftA2 (<>) ifThenElse (branches <|> elseBranch))
-                   <|> ifThen
-        ifThen = symbol "if" *> pured branch
-        ifThenElse = ifThen <* symbol "else"
-        branch = (,) <$> parens expr <*> block stmt
-        elseBranch = pured ((IntLiteral 1,) <$> block stmt)
--}
+if_ = withSrcAnnFix $ If <$> branches
+  where branches = do
+          b1 <- symbol "if" *> branch
+          bs <- many (symbol "else if" *> branch)
+          b2 <- optional (symbol "else" *> elseBranch)
+          pure (NonEmpty.fromList (b1:bs <> maybeToList b2))
+        branch = (,) <$> (Just <$> parens expr) <*> block stmt
+        elseBranch = (Nothing,) <$> block stmt
 
 while :: Parser SrcAnnStmt
 while = withSrcAnnFix $
@@ -227,16 +228,20 @@ functionCall = withSrcAnnFix $
   where args = parens (expr `sepBy` symbol ",")
 
 type_ :: Parser SrcAnnType
-type_ = withSrcAnnId $ choice
-  [ Void <$ symbol "void"
-  , Bool <$ symbol "bool"
-  , Int8 <$ symbol "int8"
-  , Int16 <$ symbol "int16"
-  , Int32 <$ symbol "int32"
-  , Int64 <$ symbol "int64"
-  , Float32 <$ symbol "float32"
-  , Float64 <$ symbol "float64"
-  ]
+type_ = withSrcAnnId $ typeName >>= stars
+  where typeName = choice
+          [ Void <$ symbol "void"
+          , Bool <$ symbol "bool"
+          , Int8 <$ symbol "int8"
+          , Int16 <$ symbol "int16"
+          , Int32 <$ symbol "int32"
+          , Int64 <$ symbol "int64"
+          , Float32 <$ symbol "float32"
+          , Float64 <$ symbol "float64"
+          ]
+        stars t = optional (symbol "*") >>= \case
+          Just _  -> stars (Ptr t)
+          Nothing -> pure t
 
 --------------------------------------------------------------------------------
 -- Parser helpers
@@ -249,9 +254,3 @@ parens p = between (symbol "(") (symbol ")") p
 
 terminated :: Parser a -> Parser a
 terminated p = p <* symbol ";"
-
---------------------------------------------------------------------------------
--- Helpers
-
-pured :: (Applicative f1, Applicative f2) => f1 a -> f1 (f2 a)
-pured = (<$>) pure

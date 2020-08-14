@@ -26,6 +26,8 @@ import           Language.Lizzie.Internal.SymbolTable
 import qualified Language.Lizzie.Internal.Util.SymbolTable    as SymTable
 import           Language.Lizzie.Internal.Util.Type
 
+import Debug.Trace
+
 --------------------------------------------------------------------------------
 -- Annotation
 
@@ -47,7 +49,7 @@ typeAnnF (Fix (Ann (_, _, _, t) _)) = t
 -- Monad
 
 data TypecheckState = TypecheckState
-  { funReturnType :: Maybe Type
+  { returnType :: Maybe Type
   }
 
 makeTypecheckState :: TypecheckState
@@ -59,15 +61,15 @@ typecheck prog = evalStateT (typecheckProg prog) makeTypecheckState
 
 withReturnType :: (MonadState TypecheckState m) => Type -> m a -> m a
 withReturnType t m = do
-  modify $ \s -> s { funReturnType = Just t }
+  modify $ \s -> s { returnType = Just t }
   x <- m
-  modify $ \s -> s { funReturnType = Nothing }
+  modify $ \s -> s { returnType = Nothing }
   pure x
 
 assertReturnTypeTop :: (MonadState TypecheckState m, MonadError ParseError m)
                     => Maybe Type -> m ()
 assertReturnTypeTop t = do
-  rt <- fromJust <$> gets funReturnType
+  rt <- fromJust <$> gets returnType
   case t of
     Nothing -> assertType (ofType rt) Void
     Just t | rt `hasType` void -> assertType void t
@@ -109,7 +111,7 @@ typecheckStmt :: (MonadState TypecheckState m, MonadError ParseError m)
 typecheckStmt (Fix (Ann ann stmt)) = case stmt of
   If branches -> do
     branches' <- forM (NonEmpty.toList branches) $ \(cond, body) -> do
-      cond' <- typecheckExpr cond -- TODO: assert cond is bool
+      cond' <- mapM typecheckExpr cond -- TODO: assert cond is bool
       (t, body') <- typecheckBlock body
       assertReturnTypeNested t
       pure (cond', body')
@@ -127,52 +129,72 @@ typecheckStmt (Fix (Ann ann stmt)) = case stmt of
     assertReturnTypeNested t
     retFix Nothing (For (pre', cond', post') body')
   VariableDefinition t s e -> do
-    e' <- mapM typecheckExpr e
+    let t' = bareId t
+    e' <- mapM (typecheckExprWithHint t') e
     retFix Nothing (VariableDefinition t s e')
   Expr e -> do
     e' <- typecheckExpr e
     retFix Nothing (Expr e')
   Return e -> do
-    e' <- typecheckExpr e
+    rt <- fromJust <$> gets returnType
+    e' <- typecheckExprWithHint rt e
     retFix (Just (typeAnnF e')) (Return e')
   where retFix t x = pure (t, Fix (Ann ann x))
 
-typecheckExpr :: (MonadState TypecheckState m, MonadError ParseError m)
-              => SymAnnExpr -> m TypAnnExpr
-typecheckExpr (Fix (Ann (pos, ft, vt) expr)) = case expr of
+typecheckExprGeneral :: (MonadState TypecheckState m, MonadError ParseError m)
+               => Maybe Type -> SymAnnExpr -> m TypAnnExpr
+typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
   FunctionCall s args -> do
-    let (t, pt) = SymTable.lookup' s ft
-    let (arity, arity') = (length pt, length args)
+    let (t, pts) = SymTable.lookup' s ft
+    let (arity, arity') = (length pts, length args)
     when (arity /= arity') $
       throwError (FunctionCallBadArity s arity arity')
-    args' <- mapM typecheckExpr args
+    args' <- forM (zip args pts) $ \(arg, pt) ->
+      typecheckExprWithHint pt arg
     -- TODO: typecheck arguments
     retFix t (FunctionCall s args')
   VariableReference s -> retFix (SymTable.lookup' s vt) (VariableReference s)
   BoolLiteral a -> retFix Bool (BoolLiteral a)
   CharLiteral a -> retFix Int8 (CharLiteral a)
-  IntLiteral a -> retFix Int64 (IntLiteral a)
-  FloatLiteral a -> retFix Float64 (FloatLiteral a)
+  IntLiteral a -> do
+    t <- case hint of
+      Just ht | ht `hasType` int -> pure ht
+      _                          -> pure Int64
+    retFix t (IntLiteral a)
+  FloatLiteral a -> do
+    t <- case hint of
+      Just ht | ht `hasType` int -> pure ht
+      _                          -> pure Float64
+    retFix t (FloatLiteral a)
   StringLiteral s -> retFix (Ptr Int8) (StringLiteral s)
   TypeCast t e -> do
     -- TODO: check for typeable rules (e.g. "(int32)true" is invalid)
-    e' <- typecheckExpr e
+    let t' = bareId t
+    e' <- typecheckExprWithHint t' e
     retFix (bareId t) (TypeCast t e')
   UnaryOperator op e -> do
-    e' <- typecheckExpr e
+    e' <- typecheckExprGeneral hint e
     let pt = typeAnnF e'
     t <- case bareId op of
-      Not -> assertType (ofType Bool) pt >> pure Bool
-      Negate -> assertType number pt >> pure pt
-      Address -> undefined -- TODO: typecheck l-value
+      Not -> do
+        assertType (ofType Bool) pt
+        pure Bool
+      Negate -> do
+        assertType number pt
+        pure pt
+      Address -> do
+        unless (isLValueF e') $ throwError ExpectLValue
+        case hint of
+          Just ht | ht `hasType` pointer -> pure ht
+          _                              -> pure (Ptr pt)
       Dereference -> do
         assertType pointer pt
         let (Ptr pt') = pt
         pure pt'
     retFix t (UnaryOperator op e')
   BinaryOperator op e1 e2 -> do
-    e1' <- typecheckExpr e1
-    e2' <- typecheckExpr e2
+    e1' <- typecheckExprGeneral hint e1
+    e2' <- typecheckExprGeneral hint e2
     let pt1 = typeAnnF e1'
     let pt2 = typeAnnF e2'
     case bareId op of
@@ -201,9 +223,17 @@ typecheckExpr (Fix (Ann (pos, ft, vt) expr)) = case expr of
       Assign -> do
         -- TODO: add bool and pointer assignment
         let t = joinNumberTypes pt1 pt2
-        unless (isLValueF e1') $ throwError ExpectLValueExpression
+        unless (isLValueF e1') $ throwError ExpectLValue
         retFix (fromJust t) (BinaryOperator op e1' e2')
   where retFix t x = pure (Fix (Ann (pos, ft, vt, t) x))
+
+typecheckExpr :: (MonadState TypecheckState m, MonadError ParseError m)
+              => SymAnnExpr -> m TypAnnExpr
+typecheckExpr = typecheckExprGeneral Nothing
+
+typecheckExprWithHint :: (MonadState TypecheckState m, MonadError ParseError m)
+                      => Type -> SymAnnExpr -> m TypAnnExpr
+typecheckExprWithHint t = typecheckExprGeneral (Just t)
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -211,7 +241,9 @@ typecheckExpr (Fix (Ann (pos, ft, vt) expr)) = case expr of
 assertType :: (MonadError ParseError m) => TypePredicate -> Type -> m ()
 assertType (e, f) t = unless (f t) $ throwError (UnexpectedType (e t) t)
 
-isLValueF :: Fix (Ann x (ExprF a b c)) -> Bool
+--isLValueF :: Fix (Ann x (ExprF  b c)) -> Bool
+--isLValueF :: _
 isLValueF (Fix (Ann _ expr)) = case expr of
-  VariableReference _ -> True
-  _                   -> False
+  VariableReference _                             -> True
+  UnaryOperator (Ann _ (Identity Dereference)) e' -> isLValueF e'
+  _                                               -> False
