@@ -14,14 +14,14 @@ import Language.Lizzie.Internal.Parser
 import Language.Lizzie.Internal.SymbolTable
 import Language.Lizzie.Internal.Typecheck
 
-test s =
-  case parse "test" s of
-    Left e -> putStrLn "SYNTAX ERROR:" >> print e
+test input =
+  case runExcept (parse "test" input) of
+    Left e -> putStrLn (errorPretty input e)
     Right ast -> do
       case runExcept (buildSymTable ast) of
-        Left e -> putStrLn "SYMTABLE ERROR:" >> print e
+        Left e -> putStrLn (errorPretty input e)
         Right ast' -> case runExcept (typecheck ast') of
-          Left e -> putStrLn "TYPECHECK ERROR:" >> print e
+          Left e -> putStrLn (errorPretty input e)
           Right ast'' -> do
             (ll, o) <- codegen "test" ast''
             B.putStr ll

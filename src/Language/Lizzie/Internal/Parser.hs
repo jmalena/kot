@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
@@ -11,12 +12,12 @@ module Language.Lizzie.Internal.Parser
   , SrcAnnUnaryOp
   , SrcAnnBinaryOp
   , SrcAnnType
-  , SrcSpan
   , parse
   ) where
 
 import Control.Applicative            hiding (many, some)
 import Control.Monad.Combinators.Expr
+import Control.Monad.Except
 
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
@@ -29,6 +30,7 @@ import           Data.Word
 
 import Language.Lizzie.Internal.Annotation
 import Language.Lizzie.Internal.AST
+import Language.Lizzie.Internal.Error
 
 import           Text.Megaparsec            hiding (parse)
 import           Text.Megaparsec.Byte
@@ -39,13 +41,13 @@ import qualified Text.Megaparsec.Byte.Lexer as Lexer
 
 type Parser = Parsec Void B.ByteString
 
-parse :: String -> B.ByteString -> Either (ParseErrorBundle B.ByteString Void) [SrcAnnDecl]
-parse s i = runParser program s i
+parse :: (MonadError Error m) => String -> B.ByteString -> m [SrcAnnDecl]
+parse s i = case runParser program s i of
+  Left bundle -> throwError $ ParseErrors bundle
+  Right ast   -> pure ast
 
 --------------------------------------------------------------------------------
 -- Annotation
-
-data SrcSpan = SrcSpan SourcePos SourcePos
 
 type SrcAnn = Ann SrcSpan
 type SrcAnnFix f = Fix (SrcAnn f)

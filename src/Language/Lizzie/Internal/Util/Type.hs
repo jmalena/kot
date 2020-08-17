@@ -9,6 +9,7 @@ module Language.Lizzie.Internal.Util.Type
   , float
   , number
   , pointer
+  , castable
   , rankNumber
   , joinNumberTypes
   ) where
@@ -17,16 +18,18 @@ import qualified Data.Set as Set
 
 import Language.Lizzie.Internal.AST
 
-type TypePredicate = (Type -> Set.Set Type, Type -> Bool)
+type TypePredicate = Type -> (Set.Set Type, Bool)
 
 hasType :: Type -> TypePredicate -> Bool
-hasType t (_, f) = f t
+hasType t f = snd (f t)
 
 ofType :: Type -> TypePredicate
-ofType t = (const (Set.singleton t), \t' -> t == t')
+ofType t t' = (Set.singleton t, t == t')
 
 orType :: TypePredicate -> TypePredicate -> TypePredicate
-orType (e1, f1) (e2, f2) = (\t -> Set.union (e1 t) (e2 t), \t -> f1 t || f2 t)
+orType f g t = (Set.union e1 e2, r1 || r2)
+  where (e1, r1) = f t
+        (e2, r2) = g t
 
 --------------------------------------------------------------------------------
 -- Predicates
@@ -38,18 +41,25 @@ bool :: TypePredicate
 bool = ofType Bool
 
 int :: TypePredicate
-int = (const ts, flip Set.member ts)
+int t = (ts, Set.member t ts)
   where ts = Set.fromList [Int8, Int16, Int32, Int64]
 
 float :: TypePredicate
-float = (const ts, flip Set.member ts)
+float t = (ts, Set.member t ts)
   where ts = Set.fromList [Float32, Float64]
 
 number :: TypePredicate
 number = int `orType` float
 
 pointer :: TypePredicate
-pointer = (\t -> Set.singleton (Ptr t), \t -> case t of { Ptr _ -> True; _ -> False })
+pointer t = (Set.singleton (Ptr t), case t of { Ptr _ -> True; _ -> False }) -- TODO: domain of expected pointers is infinite, hence I need to fix first element of a tuple
+
+castable :: Type -> TypePredicate
+castable t = case t of
+  t | t `hasType` void -> void
+  t | t `hasType` bool -> bool
+  t | t `hasType` number -> number
+  t | t `hasType` pointer -> pointer `orType` number
 
 --------------------------------------------------------------------------------
 -- Ranks

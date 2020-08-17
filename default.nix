@@ -1,6 +1,6 @@
 { mkDerivation, base, bytestring, containers, llvm-hs, llvm-hs-pure
 , megaparsec, mtl, parser-combinators, stdenv, tasty
-, tasty-discover, tasty-hspec
+, tasty-discover, tasty-hspec, utf8-string
 }:
 mkDerivation {
   pname = "lizzie";
@@ -10,7 +10,7 @@ mkDerivation {
   isExecutable = true;
   libraryHaskellDepends = [
     base bytestring containers llvm-hs llvm-hs-pure megaparsec mtl
-    parser-combinators
+    parser-combinators utf8-string
   ];
   executableHaskellDepends = [ base ];
   testHaskellDepends = [ base tasty tasty-discover tasty-hspec ];

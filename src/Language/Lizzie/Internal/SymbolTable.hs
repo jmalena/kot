@@ -52,7 +52,7 @@ data BuildSymTableState = BuildSymTableState
 makeBuildSymTableState :: BuildSymTableState
 makeBuildSymTableState = BuildSymTableState SymTable.empty SymTable.empty
 
-buildSymTable :: (MonadError ParseError m) => [SrcAnnDecl] -> m [SymAnnDecl]
+buildSymTable :: (MonadError Error m) => [SrcAnnDecl] -> m [SymAnnDecl]
 buildSymTable prog = evalStateT (buildSymTableProg prog) makeBuildSymTableState
 
 withScope :: (MonadState BuildSymTableState m) => m a -> m a
@@ -64,18 +64,16 @@ withScope f = do
   modify $ \s -> s { funSymTable = ft, varSymTable = vt }
   pure res
 
-defineFunction :: (MonadState BuildSymTableState m, MonadError ParseError m)
+defineFunction :: (MonadState BuildSymTableState m)
                => Symbol -> (Type, [Type]) -> m ()
 defineFunction k v = do
   tab <- gets funSymTable
-  when (SymTable.containsTop k tab) $ throwError (RedefinedFunction k)
   modify $ \s -> s { funSymTable = SymTable.insert k v tab }
 
-defineVariable :: (MonadState BuildSymTableState m, MonadError ParseError m)
+defineVariable :: (MonadState BuildSymTableState m)
                => Symbol -> Type -> m ()
 defineVariable k v = do
   tab <- gets varSymTable
-  when (SymTable.containsTop k tab) $ throwError (RedefinedVariable k)
   modify $ \s -> s { varSymTable = SymTable.insert k v tab }
 
 isFunctionDefined :: (MonadState BuildSymTableState m) => Symbol -> m Bool
@@ -84,10 +82,13 @@ isFunctionDefined k = SymTable.contains k <$> gets funSymTable
 isVariableDefined :: (MonadState BuildSymTableState m) => Symbol -> m Bool
 isVariableDefined k = SymTable.contains k <$> gets varSymTable
 
+isVariableDefinedTop :: (MonadState BuildSymTableState m) => Symbol -> m Bool
+isVariableDefinedTop k = SymTable.containsTop k <$> gets varSymTable
+
 --------------------------------------------------------------------------------
 -- Symbol Table
 
-buildSymTableProg :: (MonadState BuildSymTableState m, MonadError ParseError m)
+buildSymTableProg :: (MonadState BuildSymTableState m, MonadError Error m)
                   => [SrcAnnDecl] -> m [SymAnnDecl]
 buildSymTableProg prog = do
   ast <- mapM buildSymTableDecl prog
@@ -96,11 +97,13 @@ buildSymTableProg prog = do
     throwError UndefinedMain
   pure ast
 
-buildSymTableDecl :: (MonadState BuildSymTableState m, MonadError ParseError m)
+buildSymTableDecl :: (MonadState BuildSymTableState m, MonadError Error m)
                   => SrcAnnDecl -> m SymAnnDecl
 buildSymTableDecl (Ann pos (Identity decl)) = case decl of
   FunctionDeclaration t s params body -> do
     let pts = bareId . fst <$> params
+    defined <- isFunctionDefined s
+    when defined $ throwError (RedefinedFunction pos s)
     defineFunction s (bareId t, pts)
     withScope $ do
       forM params $ \(pt, ps) ->
@@ -113,7 +116,7 @@ buildSymTableDecl (Ann pos (Identity decl)) = case decl of
           vt <- gets varSymTable
           pure (Ann (pos, ft, vt) (Identity x))
 
-buildSymTableStmt :: (MonadState BuildSymTableState m, MonadError ParseError m)
+buildSymTableStmt :: (MonadState BuildSymTableState m, MonadError Error m)
                   => SrcAnnStmt -> m SymAnnStmt
 buildSymTableStmt (Fix (Ann pos stmt)) = case stmt of
   If branches -> do
@@ -137,6 +140,8 @@ buildSymTableStmt (Fix (Ann pos stmt)) = case stmt of
       retFix (For (pre', cond', post') body')
   VariableDefinition t s e -> do
     e' <- mapM buildSymTableExpr e
+    defined <- isVariableDefinedTop s
+    when defined $ throwError (RedefinedVariable pos s)
     defineVariable s (bareId t)
     retFix (VariableDefinition t s e')
   Expr e -> do
@@ -150,19 +155,19 @@ buildSymTableStmt (Fix (Ann pos stmt)) = case stmt of
           vt <- gets varSymTable
           pure (Fix (Ann (pos, ft, vt) x))
 
-buildSymTableExpr :: (MonadState BuildSymTableState m, MonadError ParseError m)
+buildSymTableExpr :: (MonadState BuildSymTableState m, MonadError Error m)
                   => SrcAnnExpr -> m SymAnnExpr
 buildSymTableExpr (Fix (Ann pos expr)) = case expr of
   FunctionCall s args -> do
     defined <- isFunctionDefined s
     unless defined $
-      throwError (UndefinedFunctionReference s)
+      throwError (UndefinedFunctionReference pos s)
     args' <- mapM buildSymTableExpr args
     retFix (FunctionCall s args')
   VariableReference s -> do
     defined <- isVariableDefined s
     unless defined $
-      throwError (UndefinedVariableReference s)
+      throwError (UndefinedVariableReference pos s)
     retFix (VariableReference s)
   BoolLiteral a -> retFix (BoolLiteral a)
   CharLiteral a -> retFix (CharLiteral a)
