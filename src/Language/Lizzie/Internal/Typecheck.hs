@@ -10,6 +10,7 @@ module Language.Lizzie.Internal.Typecheck
   , typecheck
   ) where
 
+import Control.Applicative
 import Control.Monad.Except hiding (void)
 import Control.Monad.State hiding (void)
 
@@ -80,23 +81,33 @@ typecheckStmt :: (MonadError Error m) => Type -> SymAnnStmt -> m (Maybe Type, Ty
 typecheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
   If branches -> do
     branches' <- forM (NonEmpty.toList branches) $ \(cond, body) -> do
-      cond' <- mapM typecheckExpr cond -- TODO: assert cond is bool
+      cond' <- forM cond $ \cond -> do
+        cond'@(Fix (Ann (span, _, _, t) _)) <- typecheckExpr cond
+        assertType span bool t
+        pure cond'
       (_, body') <- typecheckBlock rt body
       pure (cond', body')
     retFix Nothing (If (NonEmpty.fromList branches'))
   While cond body -> do
-    cond' <- typecheckExpr cond -- TODO: assert cond is bool
+    cond'@(Fix (Ann (span, _, _, t) _)) <- typecheckExpr cond
+    assertType span bool t
     (_, body') <- typecheckBlock rt body
     retFix Nothing (While cond' body')
   For (pre, cond, post) body -> do
     pre' <- mapM typecheckExpr pre
-    cond' <- mapM typecheckExpr cond -- TODO: assert cond is bool (or empty)
+    cond' <- forM cond $ \cond -> do
+        cond'@(Fix (Ann (span, _, _, t) _)) <- typecheckExpr cond
+        assertType span bool t
+        pure cond'
     post' <- mapM typecheckExpr post
     (_, body') <- typecheckBlock rt body
     retFix Nothing (For (pre', cond', post') body')
   VariableDefinition t s e -> do
     let t' = bareId t
-    e' <- mapM (typecheckExprWithHint t') e
+    e' <- forM e $ \e -> do
+      e'@(Fix (Ann (span, _, _, et) _)) <- typecheckExprWithHint t' e
+      assertType span (castable t') et
+      pure e'
     retFix Nothing (VariableDefinition t s e')
   Expr e -> do
     e' <- typecheckExpr e
@@ -115,9 +126,10 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
     let (arity, arity') = (length pts, length args)
     when (arity /= arity') $
       throwError (FunctionCallBadArity pos s arity arity')
-    args' <- forM (zip args pts) $ \(arg, pt) ->
-      typecheckExprWithHint pt arg
-    -- TODO: typecheck arguments
+    args' <- forM (zip args pts) $ \(arg, at) -> do
+      arg'@(Fix (Ann (span, _, _, at') _)) <- typecheckExprWithHint at arg
+      assertType span (castable at) at'
+      pure arg'
     retFix t (FunctionCall s args')
   VariableReference s -> retFix (SymTable.lookup' s vt) (VariableReference s)
   BoolLiteral a -> retFix Bool (BoolLiteral a)
@@ -134,10 +146,10 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
     retFix t (FloatLiteral a)
   StringLiteral s -> retFix (Ptr Int8) (StringLiteral s)
   TypeCast t e -> do
-    -- TODO: check for typeable rules (e.g. "(int32)true" is invalid)
     let t' = bareId t
-    e' <- typecheckExprWithHint t' e
-    retFix (bareId t) (TypeCast t e')
+    e'@(Fix (Ann (span, _, _, et) _)) <- typecheckExprWithHint t' e
+    assertType span (castable t') et
+    retFix t' (TypeCast t e')
   UnaryOperator op e -> do
     e'@(Fix (Ann (spanOp, _, _, _) _)) <- typecheckExprGeneral hint e
     let pt = typeAnnF e'
@@ -159,37 +171,43 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
         pure pt'
     retFix t (UnaryOperator op e')
   BinaryOperator op e1 e2 -> do
-    e1'@(Fix (Ann (spanOp1, _, _, _) _)) <- typecheckExprGeneral hint e1
-    e2'@(Fix (Ann (spanOp2, _, _, _) _)) <- typecheckExprGeneral hint e2
-    let pt1 = typeAnnF e1'
-    let pt2 = typeAnnF e2'
+    e1'@(Fix (Ann (spanOp1, _, _, t1) _)) <- typecheckExprGeneral hint e1
+    e2'@(Fix (Ann (spanOp2, _, _, t2) _)) <- typecheckExprGeneral hint e2
     case bareId op of
-      x | x `elem` [And, Or] -> do
-            assertType spanOp1 bool pt1
-            assertType spanOp2 bool pt2
-            retFix Bool (BinaryOperator op e1' e2')
-      x | x `elem` [LessThan, LessThanEqual, GreaterThan, GreaterThanEqual] -> do
-            -- TODO: add pointer arithmetic
-            assertType spanOp1 number pt1
-            assertType spanOp2 number pt2
-            retFix Bool (BinaryOperator op e1' e2')
       x | x `elem` [Add, Subtract] -> do
-            -- TODO: add pointer arithmetic
-            let t = joinNumberTypes pt1 pt2
-            assertType spanOp1 number pt1
-            assertType spanOp2 number pt2
+        assertType spanOp1 (pointerArithmeticOp t1) t2
+        case (t1, t2) of
+          (t1, t2) | t1 `hasType` pointer && t2 `hasType` pointer -> do
+            let t = fromJust (hint <|> Just t1)
+            retFix t (BinaryOperator op e1' e2')
+          (t1, t2) | t1 `hasType` pointer && t2 `hasType` int -> do
+            let t = fromJust (hint <|> Just t1)
+            retFix t (BinaryOperator op e1' e2')
+          (t1, t2) | t1 `hasType` int && t2 `hasType` pointer -> do
+            let t = fromJust (hint <|> Just t2)
+            retFix t (BinaryOperator op e1' e2')
+          (t1, t2) | t1 `hasType` number && t2 `hasType` number -> do
+            let t = joinNumberTypes t1 t2
             retFix (fromJust t) (BinaryOperator op e1' e2')
+      x | x `elem` [LessThan, LessThanEqual, GreaterThan, GreaterThanEqual] -> do
+        assertType spanOp1 (pointerArithmeticOp t1) t2
+        retFix Bool (BinaryOperator op e1' e2')
       x | x `elem` [Multiply, Divide] -> do
-            let t = joinNumberTypes pt1 pt2
-            assertType spanOp1 number pt1
-            assertType spanOp2 number pt2
-            retFix (fromJust t) (BinaryOperator op e1' e2')
-      x | x `elem` [Equal, NotEqual] ->
-          undefined -- TODO: typecheck == and !=
+        let t = joinNumberTypes t1 t2
+        assertType spanOp1 number t1
+        assertType spanOp2 number t2
+        retFix (fromJust t) (BinaryOperator op e1' e2')
+      x | x `elem` [And, Or] -> do
+        assertType spanOp1 bool t1
+        assertType spanOp2 bool t2
+        retFix Bool (BinaryOperator op e1' e2')
+      x | x `elem` [Equal, NotEqual] -> do
+        assertType spanOp2 (castable t1) t2
+        retFix Bool (BinaryOperator op e1' e2')
       Assign -> do
-        -- TODO: add bool and pointer assignment
-        let t = joinNumberTypes pt1 pt2
         unless (isLValueF e1') $ throwError (ExpectLValue pos)
+        assertType spanOp2 (castable t1) t2
+        let t = joinNumberTypes t1 t2
         retFix (fromJust t) (BinaryOperator op e1' e2')
   where retFix t x = pure (Fix (Ann (pos, ft, vt, t) x))
 
@@ -203,8 +221,13 @@ typecheckExprWithHint t = typecheckExprGeneral (Just t)
 -- Helpers
 
 --isLValueF :: Fix (Ann x (ExprF  b c)) -> Bool
---isLValueF :: _
 isLValueF (Fix (Ann _ expr)) = case expr of
   VariableReference _                             -> True
   UnaryOperator (Ann _ (Identity Dereference)) e' -> isLValueF e'
   _                                               -> False
+
+pointerArithmeticOp :: Type -> TypePredicate
+pointerArithmeticOp t = case t of
+  t | t `hasType` float   -> number
+  t | t `hasType` number  -> pointer `orType` number
+  t | t `hasType` pointer -> pointer `orType` int

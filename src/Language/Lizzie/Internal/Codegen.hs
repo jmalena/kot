@@ -34,7 +34,7 @@ import           LLVM.Target
 import           LLVM.IRBuilder.Constant
 import           LLVM.IRBuilder.Module
 import           LLVM.IRBuilder.Monad
-import           LLVM.IRBuilder.Instruction
+import           LLVM.IRBuilder.Instruction        as I
 
 import Debug.Trace
 
@@ -58,9 +58,9 @@ runCGModule :: B.Short.ShortByteString -> [TypAnnDecl] -> LLVM.AST.Module
 runCGModule s ast = evalState (buildModuleT s (codegenProgram ast)) makeCGModuleState
 
 codegen :: B.Short.ShortByteString -> [TypAnnDecl] -> IO (B.ByteString, B.ByteString)
-codegen s ast = do
+codegen filename ast = do
   withContext $ \ctx ->
-    withModuleFromAST ctx (runCGModule s ast) $ \mod ->
+    withModuleFromAST ctx (runCGModule filename ast) $ \mod ->
       withHostTargetMachineDefault $ \machine -> do
         ll <- moduleLLVMAssembly mod
         o <- moduleObject machine mod
@@ -142,8 +142,8 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
       ---------------
       bodyBlock <- block
       codegenBlock body
-      --hasTerm <- hasTerminator
-      --unless hasTerm $ br exitBlock
+      hasTerm <- hasTerminator
+      unless hasTerm $ br exitBlock
       -- test block
       ---------------
       testBlock <- block
@@ -153,7 +153,23 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
     br exitBlock
     exitBlock <- block
     pure ()
-  AST.While cond body -> undefined
+  AST.While cond body -> mdo
+    br testBlock
+    -- test block
+    ---------------
+    testBlock <- block
+    cond' <- codegenExpr cond
+    condBr cond' bodyBlock exitBlock
+    -- body block
+    ---------------
+    bodyBlock <- block
+    codegenBlock body
+    hasTerm <- hasTerminator
+    unless hasTerm $ br testBlock
+    -- exit block
+    ---------------
+    exitBlock <- block
+    pure ()
   AST.For (pre, cond, post) body -> mdo
     when (isJust pre) $ void (codegenExpr (fromJust pre))
     br testBlock
@@ -167,7 +183,8 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
     bodyBlock <- block
     codegenBlock body
     when (isJust post) $ void (codegenExpr (fromJust post))
-    br testBlock
+    hasTerm <- hasTerminator
+    unless hasTerm $ br testBlock
     -- exit block
     ---------------
     exitBlock <- block
@@ -218,20 +235,51 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
         addr' <- load addr 0
         load addr' 0
   AST.BinaryOperator op e1 e2 -> do
-    let jt = fromJust $ T.joinNumberTypes (typeAnnF e1) (typeAnnF e2)
+    let t1 = typeAnnF e1
+    let t2 = typeAnnF e2
+    let jt = fromJust $ T.joinNumberTypes t1 t2
     case bareId op of
-      AST.Add -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
-        case jt of
-          t | t `T.hasType` T.int   -> add e1' e2'
-          t | t `T.hasType` T.float -> fadd e1' e2'
-      AST.Subtract -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
-        case jt of
-          t | t `T.hasType` T.int   -> sub e1' e2'
-          t | t `T.hasType` T.float -> fsub e1' e2'
+      AST.Add -> case (t1, t2) of
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExpr e2
+          gep e1' [e2']
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExprWithCast AST.Int64 e2
+          gep e1' [e2']
+        (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExprWithCast AST.Int64 e1
+          e2' <- codegenExpr e2
+          gep e2' [e1']
+        (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
+          e1' <- codegenExprWithCast jt e1
+          e2' <- codegenExprWithCast jt e2
+          case jt of
+            t | t `T.hasType` T.int   -> add e1' e2'
+            t | t `T.hasType` T.float -> fadd e1' e2'
+      AST.Subtract -> case (t1, t2) of
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExpr e2
+          e2'' <- sub (constInt AST.Int64 0) e2'
+          gep e1' [e2'']
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExprWithCast AST.Int64 e2
+          e2'' <- sub (constInt AST.Int64 0) e2'
+          gep e1' [e2'']
+        (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExprWithCast AST.Int64 e1
+          e1'' <- sub (constInt AST.Int64 0) e1'
+          e2' <- codegenExpr e2
+          gep e2' [e1'']
+        (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
+          e1' <- codegenExprWithCast jt e1
+          e2' <- codegenExprWithCast jt e2
+          case jt of
+            t | t `T.hasType` T.int   -> sub e1' e2'
+            t | t `T.hasType` T.float -> fsub e1' e2'
       AST.Multiply -> do
         e1' <- codegenExprWithCast jt e1
         e2' <- codegenExprWithCast jt e2
@@ -244,40 +292,110 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
         case jt of
           t | t `T.hasType` T.int   -> sdiv e1' e2'
           t | t `T.hasType` T.float -> fdiv e1' e2'
-      AST.LessThan -> do
+      AST.LessThan -> case (t1, t2) of
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
+          -- TODO: join pointer types
+          e1' <- codegenExpr e1
+          e2' <- codegenExpr e2
+          icmp IP.ULT e1' e2'
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExprWithCast t1 e2
+          icmp IP.ULT e1' e2'
+        (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExprWithCast t2 e1
+          e2' <- codegenExpr e2
+          icmp IP.ULT e1' e2'
+        (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
+          e1' <- codegenExprWithCast jt e1
+          e2' <- codegenExprWithCast jt e2
+          case jt of
+            t | t `T.hasType` T.int   -> icmp IP.SLT e1' e2'
+            t | t `T.hasType` T.float -> fcmp FP.OLT e1' e2'
+      AST.LessThanEqual -> case (t1, t2) of
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
+          -- TODO: join pointer types
+          e1' <- codegenExpr e1
+          e2' <- codegenExpr e2
+          icmp IP.ULE e1' e2'
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExprWithCast t1 e2
+          icmp IP.ULE e1' e2'
+        (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExprWithCast t2 e1
+          e2' <- codegenExpr e2
+          icmp IP.ULE e1' e2'
+        (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
+          e1' <- codegenExprWithCast jt e1
+          e2' <- codegenExprWithCast jt e2
+          case jt of
+            t | t `T.hasType` T.int   -> icmp IP.SLE e1' e2'
+            t | t `T.hasType` T.float -> fcmp FP.OLE e1' e2'
+      AST.GreaterThan -> case (t1, t2) of
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
+          -- TODO: join pointer types
+          e1' <- codegenExpr e1
+          e2' <- codegenExpr e2
+          icmp IP.UGT e1' e2'
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExprWithCast t1 e2
+          icmp IP.UGT e1' e2'
+        (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExprWithCast t2 e1
+          e2' <- codegenExpr e2
+          icmp IP.UGT e1' e2'
+        (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
+          e1' <- codegenExprWithCast jt e1
+          e2' <- codegenExprWithCast jt e2
+          case jt of
+            t | t `T.hasType` T.int   -> icmp IP.SGT e1' e2'
+            t | t `T.hasType` T.float -> fcmp FP.OGT e1' e2'
+      AST.GreaterThanEqual -> case (t1, t2) of
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
+          -- TODO: join pointer types
+          e1' <- codegenExpr e1
+          e2' <- codegenExpr e2
+          icmp IP.UGE e1' e2'
+        (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
+          e1' <- codegenExpr e1
+          e2' <- codegenExprWithCast t1 e2
+          icmp IP.UGE e1' e2'
+        (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
+          e1' <- codegenExprWithCast t2 e1
+          e2' <- codegenExpr e2
+          icmp IP.UGE e1' e2'
+        (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
+          e1' <- codegenExprWithCast jt e1
+          e2' <- codegenExprWithCast jt e2
+          case jt of
+            t | t `T.hasType` T.int   -> icmp IP.SGE e1' e2'
+            t | t `T.hasType` T.float -> fcmp FP.OGE e1' e2'
+      AST.Equal -> do
         e1' <- codegenExprWithCast jt e1
         e2' <- codegenExprWithCast jt e2
         case jt of
-          t | t `T.hasType` T.int   -> icmp IP.SLT e1' e2'
-          t | t `T.hasType` T.float -> fcmp FP.OLT e1' e2'
-      AST.LessThanEqual -> do
+          -- TODO: compare pointers
+          t | t `T.hasType` T.int   -> icmp IP.EQ e1' e2'
+          t | t `T.hasType` T.float -> fcmp FP.OEQ e1' e2'
+      AST.NotEqual -> do
         e1' <- codegenExprWithCast jt e1
         e2' <- codegenExprWithCast jt e2
         case jt of
-          t | t `T.hasType` T.int   -> icmp IP.SLE e1' e2'
-          t | t `T.hasType` T.float -> fcmp FP.OLE e1' e2'
-      AST.GreaterThan -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
-        case jt of
-          t | t `T.hasType` T.int   -> icmp IP.SGT e1' e2'
-          t | t `T.hasType` T.float -> fcmp FP.OGT e1' e2'
-      AST.GreaterThanEqual -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
-        case jt of
-          t | t `T.hasType` T.int   -> icmp IP.SGE e1' e2'
-          t | t `T.hasType` T.float -> fcmp FP.OGE e1' e2'
-      AST.Equal ->
-        undefined
-      AST.NotEqual ->
-        undefined
-      AST.And ->
-        undefined
-      AST.Or ->
-        undefined
+          -- TODO: compare pointers
+          t | t `T.hasType` T.int   -> icmp IP.NE e1' e2'
+          t | t `T.hasType` T.float -> fcmp FP.ONE e1' e2'
+      AST.And -> do
+        e1' <- codegenExpr e1
+        e2' <- codegenExpr e2
+        I.and e1' e2'
+      AST.Or -> do
+        e1' <- codegenExpr e1
+        e2' <- codegenExpr e2
+        I.or e1' e2'
       AST.Assign -> do
-        e2' <- codegenExprWithCast (typeAnnF e1) e2
+        e2' <- codegenExprWithCast t1 e2
         addr <- getLValueAddr e1
         store addr 0 e2'
         pure e2'
@@ -286,6 +404,12 @@ codegenExprWithCast :: AST.Type -> TypAnnExpr -> CGBlock Operand
 codegenExprWithCast t' e@(Fix (Ann (_, _, _, t) _)) = do
   e' <- codegenExpr e
   case (t, t') of
+    (t, t') | t `T.hasType` T.pointer && t' `T.hasType` T.pointer ->
+      bitcast e' (toLLVMType t')
+    (t, t') | t `T.hasType` T.pointer && t' `T.hasType` T.int ->
+      ptrtoint e' (toLLVMType t')
+    (t, t') | t `T.hasType` T.int && t' `T.hasType` T.pointer ->
+      inttoptr e' (toLLVMType t')
     (t, t') | t `T.hasType` T.int && t' `T.hasType` T.int && T.rankNumber t' > T.rankNumber t ->
       sext e' (toLLVMType t')
     (t, t') | t `T.hasType` T.int && t' `T.hasType` T.int && T.rankNumber t' < T.rankNumber t ->

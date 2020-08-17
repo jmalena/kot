@@ -21,6 +21,7 @@ import Control.Monad.Except
 
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
+import qualified Data.ByteString.UTF8  as BU
 import           Data.Functor.Identity
 import           Data.Int
 import qualified Data.List.NonEmpty    as NonEmpty
@@ -41,10 +42,11 @@ import qualified Text.Megaparsec.Byte.Lexer as Lexer
 
 type Parser = Parsec Void B.ByteString
 
-parse :: (MonadError Error m) => String -> B.ByteString -> m [SrcAnnDecl]
-parse s i = case runParser program s i of
+parse :: (MonadError Error m) => B.Short.ShortByteString -> B.ByteString -> m [SrcAnnDecl]
+parse filename input = case runParser program filename' input of
   Left bundle -> throwError $ ParseErrors bundle
   Right ast   -> pure ast
+  where filename' = (BU.toString . B.Short.fromShort) filename
 
 --------------------------------------------------------------------------------
 -- Annotation

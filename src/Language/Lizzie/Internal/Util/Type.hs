@@ -56,9 +56,9 @@ pointer t = (Set.singleton (Ptr t), case t of { Ptr _ -> True; _ -> False }) -- 
 
 castable :: Type -> TypePredicate
 castable t = case t of
-  t | t `hasType` void -> void
-  t | t `hasType` bool -> bool
-  t | t `hasType` number -> number
+  t | t `hasType` void    -> void
+  t | t `hasType` bool    -> bool
+  t | t `hasType` number  -> number
   t | t `hasType` pointer -> pointer `orType` number
 
 --------------------------------------------------------------------------------
