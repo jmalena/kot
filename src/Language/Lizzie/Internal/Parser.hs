@@ -128,7 +128,7 @@ stringLiteral = undefined
 -- Parser
 
 program :: Parser [SrcAnnDecl]
-program = many declaration <* eof
+program = spaceConsumer *> many declaration <* eof
 
 declaration :: Parser SrcAnnDecl
 declaration = functionDeclaration
@@ -190,10 +190,10 @@ expr = makeExprParser term operatorTable
           , [ InfixL (binary Add (symbol "+"))
             , InfixL (binary Subtract (symbol "-"))
             ]
-          , [ InfixL (binary LessThan (symbol "<"))
-            , InfixL (binary LessThanEqual (symbol "<="))
-            , InfixL (binary GreaterThan (symbol ">"))
+          , [ InfixL (binary LessThanEqual (symbol "<="))
+            , InfixL (binary LessThan (symbol "<"))
             , InfixL (binary GreaterThanEqual (symbol ">="))
+            , InfixL (binary GreaterThan (symbol ">"))
             ]
           , [ InfixL (binary Equal (symbol "=="))
             , InfixL (binary NotEqual (symbol "!="))
