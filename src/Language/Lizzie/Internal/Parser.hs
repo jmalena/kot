@@ -180,9 +180,9 @@ expr = makeExprParser term operatorTable
   where operatorTable =
           [ [ Prefix (id <$ symbol "+")
             , Prefix (unary Negate (symbol "-"))
-            , Prefix (unary Dereference (symbol "*"))
+            , Prefix (unarySome Dereference (symbol "*"))
             , Prefix (unary Address (symbol "&"))
-            , Prefix (unary Not (symbol "!"))
+            , Prefix (unarySome Not (symbol "!"))
             ]
           , [ InfixL (binary Multiply (symbol "*"))
             , InfixL (binary Divide (symbol "/"))
@@ -210,6 +210,8 @@ expr = makeExprParser term operatorTable
           let (Ann (SrcSpan l1 _) _) = op
           pure $ \e@(Fix (Ann (SrcSpan _ r2) _)) ->
             Fix (Ann (SrcSpan l1 r2) (UnaryOperator op e))
+        unarySome op tok = do
+          foldr1 (.) <$> some (unary op tok)
         binary op tok = do
           op <- withSrcAnnId (op <$ tok)
           pure $ \e1@(Fix (Ann (SrcSpan l1 _) _)) e2@(Fix (Ann (SrcSpan _ r2) _)) ->

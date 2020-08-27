@@ -26,12 +26,180 @@ int32 main() {
 }
   |]
 
+unit_log1 :: IO ()
+unit_log1 =
+  (@?= 1) =<< interpretWithExitCode [s|
+int32 main() {
+  if (!!!false) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_log2 :: IO ()
+unit_log2 =
+  (@?= 0) =<< interpretWithExitCode [s|
+int32 main() {
+  if (true && false) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_log3 :: IO ()
+unit_log3 =
+  (@?= 1) =<< interpretWithExitCode [s|
+int32 main() {
+  if (true || false) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_arith1 :: IO ()
+unit_arith1 =
+  (@?= 1) =<< interpretWithExitCode [s|
+int32 main() {
+  return +1;
+}
+  |]
+
+unit_arith2 :: IO ()
+unit_arith2 =
+  (@?= 1) =<< interpretWithExitCode [s|
+int32 main() {
+  return -(-1);
+}
+  |]
+
+unit_arith3 :: IO ()
+unit_arith3 =
+  (@?= 2) =<< interpretWithExitCode [s|
+int32 main() {
+  return 1 + 1;
+}
+  |]
+
+unit_arith4 :: IO ()
+unit_arith4 =
+  (@?= 3) =<< interpretWithExitCode [s|
+int32 main() {
+  return 4 - 1;
+}
+  |]
+
+unit_arith5 :: IO ()
+unit_arith5 =
+  (@?= 4) =<< interpretWithExitCode [s|
+int32 main() {
+  return 2 * 2;
+}
+  |]
+
+unit_arith6 :: IO ()
+unit_arith6 =
+  (@?= 5) =<< interpretWithExitCode [s|
+int32 main() {
+  return 25 / 5;
+}
+  |]
+
+unit_comp1 :: IO ()
+unit_comp1 =
+  (@?= 1) =<< interpretWithExitCode [s|
+int32 main() {
+  if (1 == 1) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_comp2 :: IO ()
+unit_comp2 =
+  (@?= 0) =<< interpretWithExitCode [s|
+int32 main() {
+  if (1 != 1) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_comp3 :: IO ()
+unit_comp3 =
+  (@?= 0) =<< interpretWithExitCode [s|
+int32 main() {
+  if (1 < 1) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_comp4 :: IO ()
+unit_comp4 =
+  (@?= 1) =<< interpretWithExitCode [s|
+int32 main() {
+  if (1 <= 1) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_comp5 :: IO ()
+unit_comp5 =
+  (@?= 0) =<< interpretWithExitCode [s|
+int32 main() {
+  if (1 > 1) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
+unit_comp6 :: IO ()
+unit_comp6 =
+  (@?= 1) =<< interpretWithExitCode [s|
+int32 main() {
+  if (1 >= 1) {
+    return 1;
+  }
+
+  return 0;
+}
+  |]
+
 unit_var1 :: IO ()
 unit_var1 =
   (@?= 1) =<< interpretWithExitCode [s|
 int32 main() {
   int32 a = 1;
   return a;
+}
+  |]
+
+-- TODO: fix this test
+xunit_var2 :: IO ()
+xunit_var2 =
+  (@?= 4) =<< interpretWithExitCode [s|
+int32 main() {
+  int32 a;
+  int32 b;
+  a = b = 2;
+  return a + b;
 }
   |]
 
@@ -52,13 +220,13 @@ int32 main() {
   int32 a = 1;
   int32 *b = &a;
   int32 **c = &b;
-  return *(*c);
+  return **c;
 }
   |]
 
 unit_pointer3 :: IO ()
 unit_pointer3 =
-  check [s|
+  checkCode [s|
 void main() {
   int32 a = 1;
   int32 **b = &a;
@@ -72,6 +240,14 @@ unit_cast1 =
   (@?= 1) =<< interpretWithExitCode [s|
 int32 main() {
   return (int32)1.2;
+}
+  |]
+
+unit_cast2 :: IO ()
+unit_cast2 =
+  checkCode [s|
+void main() {
+  float32 a = (int32)1;
 }
   |]
 
@@ -196,7 +372,7 @@ int32 main() {
 
 unit_comment1 :: IO ()
 unit_comment1 =
-  check [s|
+  checkCode [s|
 /*
  * Hello, world!
  */
@@ -209,8 +385,8 @@ void main() {
 --------------------------------------------------------------------------------
 -- Utils
 
-check :: B.ByteString -> IO ()
-check input =
+checkCode :: B.ByteString -> IO ()
+checkCode input =
   compile "test" input >>= \case
     Left e -> error (errorPretty input e)
     Right _ -> pure ()
