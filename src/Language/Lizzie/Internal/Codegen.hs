@@ -54,13 +54,13 @@ type CGBlock = IRBuilderT CGModule
 makeCGModuleState :: CGModuleState
 makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Nothing
 
-runCGModule :: B.Short.ShortByteString -> [TypAnnDecl] -> LLVM.AST.Module
-runCGModule s ast = evalState (buildModuleT s (codegenProgram ast)) makeCGModuleState
+runCGModule :: B.Short.ShortByteString -> [(AST.Symbol, (AST.Type, [AST.Type]))] -> [TypAnnDecl] -> LLVM.AST.Module
+runCGModule filename externs ast = evalState (buildModuleT filename (codegenProgram externs ast)) makeCGModuleState
 
-codegen :: B.Short.ShortByteString -> [TypAnnDecl] -> IO (B.ByteString, B.ByteString)
-codegen filename ast = do
+codegen :: B.Short.ShortByteString -> [(AST.Symbol, (AST.Type, [AST.Type]))] -> [TypAnnDecl] -> IO (B.ByteString, B.ByteString)
+codegen filename externs ast = do
   withContext $ \ctx ->
-    withModuleFromAST ctx (runCGModule filename ast) $ \mod ->
+    withModuleFromAST ctx (runCGModule filename externs ast) $ \mod ->
       withHostTargetMachineDefault $ \machine -> do
         ll <- moduleLLVMAssembly mod
         o <- moduleObject machine mod
@@ -106,8 +106,11 @@ withReturn t m = do
 --------------------------------------------------------------------------------
 -- Codegen
 
-codegenProgram :: [TypAnnDecl] -> CGModule ()
-codegenProgram = mapM_ codegenDecl
+codegenProgram :: [(AST.Symbol, (AST.Type, [AST.Type]))] -> [TypAnnDecl] -> CGModule ()
+codegenProgram externs ast = do
+  forM_ externs $ \(name, (t, params)) ->
+    extern (Name name) (toLLVMType <$> params) (toLLVMType t)
+  mapM_ codegenDecl ast
 
 codegenDecl :: TypAnnDecl -> CGModule ()
 codegenDecl (Ann _ (Identity decl)) = case decl of

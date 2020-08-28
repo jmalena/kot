@@ -1,6 +1,7 @@
 module Language.Lizzie.Internal.Util.SymbolTable
   ( SymbolTable
   , empty
+  , fromList
   , insert
   , lookup
   , lookup'
@@ -20,6 +21,9 @@ type SymbolTable k v = NonEmpty.NonEmpty (Map.Map k v)
 
 empty :: SymbolTable k v
 empty = NonEmpty.fromList [Map.empty]
+
+fromList :: (Ord k) => [(k, v)] -> SymbolTable k v
+fromList xs = NonEmpty.fromList [Map.fromList xs]
 
 insert :: (Ord k) => k -> v -> SymbolTable k v -> SymbolTable k v
 insert k v (x NonEmpty.:| xs) = NonEmpty.fromList ((Map.insert k v x):xs)

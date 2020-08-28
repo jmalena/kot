@@ -49,11 +49,12 @@ data BuildSymTableState = BuildSymTableState
   , varSymTable :: VarSymbolTable
   }
 
-makeBuildSymTableState :: BuildSymTableState
-makeBuildSymTableState = BuildSymTableState SymTable.empty SymTable.empty
+makeBuildSymTableState :: [(Symbol, (Type, [Type]))] -> BuildSymTableState
+makeBuildSymTableState externs = BuildSymTableState (SymTable.fromList externs) SymTable.empty
 
-buildSymTable :: (MonadError Error m) => [SrcAnnDecl] -> m [SymAnnDecl]
-buildSymTable prog = evalStateT (buildSymTableProg prog) makeBuildSymTableState
+buildSymTable :: (MonadError Error m)
+              => [(Symbol, (Type, [Type]))] -> [SrcAnnDecl] -> m [SymAnnDecl]
+buildSymTable externs prog = evalStateT (buildSymTableProg prog) (makeBuildSymTableState externs)
 
 withScope :: (MonadState BuildSymTableState m) => m a -> m a
 withScope f = do
