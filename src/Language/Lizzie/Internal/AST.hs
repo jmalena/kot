@@ -26,7 +26,6 @@ data StmtF expr type_ f
   = If (NonEmpty.NonEmpty (Maybe expr, [f]))
   | While expr [f]
   | For (Maybe expr, Maybe expr, Maybe expr) [f]
-  | VariableDefinition type_ Symbol (Maybe expr)
   | Expr expr
   | Return expr
   deriving (Eq, Ord, Show)
@@ -34,7 +33,7 @@ data StmtF expr type_ f
 data ExprF unaryOp binaryOp type_ f
   = FunctionCall Symbol [f]
   | VariableReference Symbol
-  | VariableDefinitionExpr type_ Symbol (Maybe f)
+  | VariableDefinition type_ Symbol (Maybe f)
   | BoolLiteral Bool
   | CharLiteral Word8
   | IntLiteral Int64

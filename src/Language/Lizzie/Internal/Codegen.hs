@@ -201,11 +201,6 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
       ---------------
       exitBlock <- block
       pure ()
-  AST.VariableDefinition t s e -> do
-    addr <- alloca (toLLVMType (bareId t)) Nothing 0
-    when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr 0
-    -- TODO: init default value of expression
-    setVarAddr s addr
   AST.Expr e -> void $ codegenExpr e
   AST.Return e -> do
     t <- fromJust <$> gets returnType
@@ -224,7 +219,7 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.VariableReference s -> do
     addr <- getVarAddr s
     load addr 0
-  AST.VariableDefinitionExpr t s e -> do
+  AST.VariableDefinition t s e -> do
     addr <- alloca (toLLVMType (bareId t)) Nothing 0
     when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr 0
     -- TODO: init default value of expression

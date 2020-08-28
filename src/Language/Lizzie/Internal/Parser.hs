@@ -147,9 +147,8 @@ stmt :: Parser SrcAnnStmt
 stmt = if_
        <|> while
        <|> for
-       <|> variableDefinition
        <|> ret
-       <|> (withSrcAnnFix $ Expr <$> terminated expr)
+       <|> (withSrcAnnFix $ Expr <$> terminated exprWithDefinition)
 
 if_ :: Parser SrcAnnStmt
 if_ = withSrcAnnFix $ If <$> branches
@@ -169,11 +168,6 @@ for :: Parser SrcAnnStmt
 for = withSrcAnnFix $
   For <$ symbol "for" <*> cond <*> block stmt
   where cond = parens ((,,) <$> terminated (optional exprWithDefinition) <*> terminated (optional exprWithDefinition) <*> optional exprWithDefinition)
-
-variableDefinition :: Parser SrcAnnStmt
-variableDefinition = withSrcAnnFix $
-  terminated (VariableDefinition <$> type_ <*> identifier <*> optional value)
-  where value = symbol "=" *> expr
 
 ret :: Parser SrcAnnStmt
 ret = withSrcAnnFix $
@@ -223,7 +217,7 @@ expr = makeExprParser term operatorTable
 
 exprVariableDefinition :: Parser SrcAnnExpr
 exprVariableDefinition = withSrcAnnFix $
-  VariableDefinitionExpr <$> type_ <*> identifier <*> optional value
+  VariableDefinition <$> type_ <*> identifier <*> optional value
   where value = symbol "=" *> expr
 
 exprWithDefinition :: Parser SrcAnnExpr

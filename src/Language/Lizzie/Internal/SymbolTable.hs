@@ -144,12 +144,6 @@ buildSymTableStmt (Fix (Ann pos stmt)) = case stmt of
       withScope $ do
         body' <- mapM buildSymTableStmt body
         retFix (For (pre', cond', post') body')
-  VariableDefinition t s e -> do
-    e' <- mapM buildSymTableExpr e
-    defined <- isVariableDefinedTop s
-    when defined $ throwError (RedefinedVariable pos s)
-    defineVariable s (bareId t)
-    retFix (VariableDefinition t s e')
   Expr e -> do
     e' <- buildSymTableExpr e
     retFix (Expr e')
@@ -175,12 +169,12 @@ buildSymTableExpr (Fix (Ann pos expr)) = case expr of
     unless defined $
       throwError (UndefinedVariableReference pos s)
     retFix (VariableReference s)
-  VariableDefinitionExpr t s e -> do
+  VariableDefinition t s e -> do
     e' <- mapM buildSymTableExpr e
     defined <- isVariableDefinedTop s
     when defined $ throwError (RedefinedVariable pos s)
     defineVariable s (bareId t)
-    retFix (VariableDefinitionExpr t s e')
+    retFix (VariableDefinition t s e')
   BoolLiteral a -> retFix (BoolLiteral a)
   CharLiteral a -> retFix (CharLiteral a)
   IntLiteral a -> retFix (IntLiteral a)
