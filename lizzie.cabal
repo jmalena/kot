@@ -14,6 +14,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Language.Lizzie.Compiler
+                       Language.Lizzie.Monad
                        Language.Lizzie.Internal.Annotation
                        Language.Lizzie.Internal.AST
                        Language.Lizzie.Internal.Codegen

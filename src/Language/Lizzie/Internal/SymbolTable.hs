@@ -13,11 +13,13 @@ module Language.Lizzie.Internal.SymbolTable
   ) where
 
 import Control.Monad.Except
+import Control.Monad.Reader
 import Control.Monad.State
 
 import           Data.Functor.Identity
 import qualified Data.List.NonEmpty    as NonEmpty
 
+import           Language.Lizzie.Monad
 import           Language.Lizzie.Internal.AST
 import           Language.Lizzie.Internal.Annotation
 import           Language.Lizzie.Internal.Error
@@ -49,12 +51,13 @@ data BuildSymTableState = BuildSymTableState
   , varSymTable :: VarSymbolTable
   }
 
-makeBuildSymTableState :: [(Symbol, (Type, [Type]))] -> BuildSymTableState
-makeBuildSymTableState externs = BuildSymTableState (SymTable.fromList externs) SymTable.empty
+makeBuildSymTableState :: (MonadReader CompileEnv m) => m BuildSymTableState
+makeBuildSymTableState = do
+  funSymTable <- SymTable.fromList <$> reader externs
+  pure $ BuildSymTableState funSymTable SymTable.empty
 
-buildSymTable :: (MonadError Error m)
-              => [(Symbol, (Type, [Type]))] -> [SrcAnnDecl] -> m [SymAnnDecl]
-buildSymTable externs prog = evalStateT (buildSymTableProg prog) (makeBuildSymTableState externs)
+buildSymTable :: (MonadReader CompileEnv m, MonadError Error m) => [SrcAnnDecl] -> m [SymAnnDecl]
+buildSymTable prog = makeBuildSymTableState >>= evalStateT (buildSymTableProg prog)
 
 withScope :: (MonadState BuildSymTableState m) => m a -> m a
 withScope f = do

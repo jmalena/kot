@@ -6,6 +6,7 @@ module Language.Lizzie.Internal.Codegen
   ( codegen
   ) where
 
+import Control.Monad.Reader
 import Control.Monad.State
 
 import qualified Data.ByteString             as B
@@ -15,6 +16,7 @@ import           Data.Functor.Identity
 import qualified Data.List.NonEmpty          as NonEmpty
 import           Data.Maybe
 
+import           Language.Lizzie.Monad
 import           Language.Lizzie.Internal.Annotation
 import qualified Language.Lizzie.Internal.AST                 as AST
 import           Language.Lizzie.Internal.Typecheck
@@ -54,17 +56,22 @@ type CGBlock = IRBuilderT CGModule
 makeCGModuleState :: CGModuleState
 makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Nothing
 
-runCGModule :: B.Short.ShortByteString -> [(AST.Symbol, (AST.Type, [AST.Type]))] -> [TypAnnDecl] -> LLVM.AST.Module
-runCGModule filename externs ast = evalState (buildModuleT filename (codegenProgram externs ast)) makeCGModuleState
+runCGModule :: (MonadReader CompileEnv m) => [TypAnnDecl] -> m LLVM.AST.Module
+runCGModule ast = do
+  ext <- reader externs
+  filename <- reader sourceFilename
+  pure $ evalState (buildModuleT filename (codegenProgram ext ast)) makeCGModuleState
 
-codegen :: B.Short.ShortByteString -> [(AST.Symbol, (AST.Type, [AST.Type]))] -> [TypAnnDecl] -> IO (B.ByteString, B.ByteString)
-codegen filename externs ast = do
-  withContext $ \ctx ->
-    withModuleFromAST ctx (runCGModule filename externs ast) $ \mod ->
-      withHostTargetMachineDefault $ \machine -> do
-        ll <- moduleLLVMAssembly mod
-        o <- moduleObject machine mod
-        return (ll, o)
+codegen :: (MonadReader CompileEnv m, MonadIO m) => [TypAnnDecl] -> m (B.ByteString, B.ByteString)
+codegen ast = do
+  mod <- runCGModule ast
+  liftIO $
+    withContext $ \ctx ->
+      withModuleFromAST ctx mod $ \mod' ->
+        withHostTargetMachineDefault $ \machine -> do
+          ll <- moduleLLVMAssembly mod'
+          o <- moduleObject machine mod'
+          return (ll, o)
 
 withScope :: (MonadState CGModuleState m) => m a -> m a
 withScope f = do

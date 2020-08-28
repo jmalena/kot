@@ -17,6 +17,7 @@ module Language.Lizzie.Internal.Parser
 
 import Control.Applicative            hiding (many, some)
 import Control.Monad.Combinators.Expr
+import Control.Monad.Reader
 import Control.Monad.Except
 
 import qualified Data.ByteString       as B
@@ -29,6 +30,7 @@ import           Data.Maybe
 import           Data.Void
 import           Data.Word
 
+import Language.Lizzie.Monad
 import Language.Lizzie.Internal.Annotation
 import Language.Lizzie.Internal.AST
 import Language.Lizzie.Internal.Error
@@ -42,11 +44,13 @@ import qualified Text.Megaparsec.Byte.Lexer as Lexer
 
 type Parser = Parsec Void B.ByteString
 
-parse :: (MonadError Error m) => B.Short.ShortByteString -> B.ByteString -> m [SrcAnnDecl]
-parse filename input = case runParser program filename' input of
-  Left bundle -> throwError $ ParseErrors bundle
-  Right ast   -> pure ast
-  where filename' = (BU.toString . B.Short.fromShort) filename
+parse :: (MonadReader CompileEnv m, MonadError Error m) => B.ByteString -> m [SrcAnnDecl]
+parse input = do
+  filename <- reader sourceFilename
+  let filename' = (BU.toString . B.Short.fromShort) filename
+  case runParser program filename' input of
+    Left bundle -> throwError $ ParseErrors bundle
+    Right ast   -> pure ast
 
 --------------------------------------------------------------------------------
 -- Annotation

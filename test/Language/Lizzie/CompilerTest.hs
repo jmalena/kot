@@ -9,6 +9,7 @@ import qualified Data.ByteString.UTF8 as BU
 import           Data.String.QQ
 
 import Language.Lizzie.Compiler
+import Language.Lizzie.Monad
 
 import System.Exit
 import System.Process
@@ -385,15 +386,18 @@ void main() {
 --------------------------------------------------------------------------------
 -- Utils
 
+compileEnv :: CompileEnv
+compileEnv = makeCompileEnv "test" []
+
 checkCode :: B.ByteString -> IO ()
 checkCode input =
-  compile "test" input >>= \case
+  compile compileEnv input >>= \case
     Left e -> error (errorPretty input e)
     Right _ -> pure ()
 
 interpretWithExitCode :: B.ByteString -> IO Int
 interpretWithExitCode input =
-  compile "test" input >>= \case
+  compile compileEnv input >>= \case
     Left e -> error (errorPretty input e)
     Right (ll, _) -> do
       (ec, _, _) <- readProcessWithExitCode "lli" [] (BU.toString ll)
