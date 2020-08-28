@@ -333,9 +333,8 @@ unit_for2 =
   (@?= 55) =<< interpretWithExitCode [s|
 int32 main() {
   int32 a = 0;
-  int32 i;
 
-  for (i = 1; i <= 10; i = i + 1) {
+  for (int32 i = 1; i <= 10; i = i + 1) {
     a = a + i;
   }
 

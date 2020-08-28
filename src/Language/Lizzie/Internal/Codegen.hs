@@ -163,42 +163,44 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
     br exitBlock
     exitBlock <- block
     pure ()
-  AST.While cond body -> mdo
-    br testBlock
-    -- test block
-    ---------------
-    testBlock <- block
-    cond' <- codegenExpr cond
-    condBr cond' bodyBlock exitBlock
-    -- body block
-    ---------------
-    bodyBlock <- block
-    codegenBlock body
-    hasTerm <- hasTerminator
-    unless hasTerm $ br testBlock
-    -- exit block
-    ---------------
-    exitBlock <- block
-    pure ()
-  AST.For (pre, cond, post) body -> mdo
-    when (isJust pre) $ void (codegenExpr (fromJust pre))
-    br testBlock
-    -- test block
-    ---------------
-    testBlock <- block
-    cond' <- maybe (pure (constBool True)) codegenExpr cond
-    condBr cond' bodyBlock exitBlock
-    -- body block
-    ---------------
-    bodyBlock <- block
-    codegenBlock body
-    when (isJust post) $ void (codegenExpr (fromJust post))
-    hasTerm <- hasTerminator
-    unless hasTerm $ br testBlock
-    -- exit block
-    ---------------
-    exitBlock <- block
-    pure ()
+  AST.While cond body ->
+    withScope $ mdo
+      br testBlock
+      -- test block
+      ---------------
+      testBlock <- block
+      cond' <- codegenExpr cond
+      condBr cond' bodyBlock exitBlock
+      -- body block
+      ---------------
+      bodyBlock <- block
+      codegenBlock body
+      hasTerm <- hasTerminator
+      unless hasTerm $ br testBlock
+      -- exit block
+      ---------------
+      exitBlock <- block
+      pure ()
+  AST.For (pre, cond, post) body ->
+    withScope $ mdo
+      when (isJust pre) $ void (codegenExpr (fromJust pre))
+      br testBlock
+      -- test block
+      ---------------
+      testBlock <- block
+      cond' <- maybe (pure (constBool True)) codegenExpr cond
+      condBr cond' bodyBlock exitBlock
+      -- body block
+      ---------------
+      bodyBlock <- block
+      codegenBlock body
+      when (isJust post) $ void (codegenExpr (fromJust post))
+      hasTerm <- hasTerminator
+      unless hasTerm $ br testBlock
+      -- exit block
+      ---------------
+      exitBlock <- block
+      pure ()
   AST.VariableDefinition t s e -> do
     addr <- alloca (toLLVMType (bareId t)) Nothing 0
     when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr 0
@@ -221,6 +223,12 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
     call addr args'
   AST.VariableReference s -> do
     addr <- getVarAddr s
+    load addr 0
+  AST.VariableDefinitionExpr t s e -> do
+    addr <- alloca (toLLVMType (bareId t)) Nothing 0
+    when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr 0
+    -- TODO: init default value of expression
+    setVarAddr s addr
     load addr 0
   AST.BoolLiteral False -> pure (constBool False)
   AST.BoolLiteral True -> pure (constBool True)

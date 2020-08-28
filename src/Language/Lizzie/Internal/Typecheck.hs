@@ -132,6 +132,13 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
       pure arg'
     retFix t (FunctionCall s args')
   VariableReference s -> retFix (SymTable.lookup' s vt) (VariableReference s)
+  VariableDefinitionExpr t s e -> do
+    let t' = bareId t
+    e' <- forM e $ \e -> do
+      e'@(Fix (Ann (span, _, _, et) _)) <- typecheckExprWithHint t' e
+      assertType span (castable t') et
+      pure e'
+    retFix t' (VariableDefinitionExpr t s e')
   BoolLiteral a -> retFix Bool (BoolLiteral a)
   CharLiteral a -> retFix Int8 (CharLiteral a)
   IntLiteral a -> do

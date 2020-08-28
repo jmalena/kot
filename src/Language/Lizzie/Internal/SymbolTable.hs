@@ -131,17 +131,19 @@ buildSymTableStmt (Fix (Ann pos stmt)) = case stmt of
         pure (cond', body')
     retFix (If (NonEmpty.fromList branches'))
   While cond body -> do
-    cond' <- buildSymTableExpr cond
     withScope $ do
-      body' <- mapM buildSymTableStmt body
-      retFix (While cond' body')
+      cond' <- buildSymTableExpr cond
+      withScope $ do
+        body' <- mapM buildSymTableStmt body
+        retFix (While cond' body')
   For (pre, cond, post) body -> do
-    pre' <- mapM buildSymTableExpr pre
-    cond' <- mapM buildSymTableExpr cond
-    post' <- mapM buildSymTableExpr post
     withScope $ do
-      body' <- mapM buildSymTableStmt body
-      retFix (For (pre', cond', post') body')
+      pre' <- mapM buildSymTableExpr pre
+      cond' <- mapM buildSymTableExpr cond
+      post' <- mapM buildSymTableExpr post
+      withScope $ do
+        body' <- mapM buildSymTableStmt body
+        retFix (For (pre', cond', post') body')
   VariableDefinition t s e -> do
     e' <- mapM buildSymTableExpr e
     defined <- isVariableDefinedTop s
@@ -173,6 +175,12 @@ buildSymTableExpr (Fix (Ann pos expr)) = case expr of
     unless defined $
       throwError (UndefinedVariableReference pos s)
     retFix (VariableReference s)
+  VariableDefinitionExpr t s e -> do
+    e' <- mapM buildSymTableExpr e
+    defined <- isVariableDefinedTop s
+    when defined $ throwError (RedefinedVariable pos s)
+    defineVariable s (bareId t)
+    retFix (VariableDefinitionExpr t s e')
   BoolLiteral a -> retFix (BoolLiteral a)
   CharLiteral a -> retFix (CharLiteral a)
   IntLiteral a -> retFix (IntLiteral a)

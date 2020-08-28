@@ -163,12 +163,12 @@ if_ = withSrcAnnFix $ If <$> branches
 
 while :: Parser SrcAnnStmt
 while = withSrcAnnFix $
-  While <$ symbol "while" <*> parens expr <*> block stmt
+  While <$ symbol "while" <*> parens exprWithDefinition <*> block stmt
 
 for :: Parser SrcAnnStmt
 for = withSrcAnnFix $
   For <$ symbol "for" <*> cond <*> block stmt
-  where cond = parens ((,,) <$> terminated (optional expr) <*> terminated (optional expr) <*> optional expr)
+  where cond = parens ((,,) <$> terminated (optional exprWithDefinition) <*> terminated (optional exprWithDefinition) <*> optional exprWithDefinition)
 
 variableDefinition :: Parser SrcAnnStmt
 variableDefinition = withSrcAnnFix $
@@ -220,6 +220,14 @@ expr = makeExprParser term operatorTable
           op <- withSrcAnnId (op <$ tok)
           pure $ \e1@(Fix (Ann (SrcSpan l1 _) _)) e2@(Fix (Ann (SrcSpan _ r2) _)) ->
             Fix (Ann (SrcSpan l1 r2) (BinaryOperator op e1 e2))
+
+exprVariableDefinition :: Parser SrcAnnExpr
+exprVariableDefinition = withSrcAnnFix $
+  VariableDefinitionExpr <$> type_ <*> identifier <*> optional value
+  where value = symbol "=" *> expr
+
+exprWithDefinition :: Parser SrcAnnExpr
+exprWithDefinition = exprVariableDefinition <|> expr
 
 term :: Parser SrcAnnExpr
 term = try (withSrcAnnFix $ FloatLiteral <$> floatLiteral)
