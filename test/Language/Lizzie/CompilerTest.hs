@@ -22,7 +22,7 @@ import Test.Tasty.HUnit
 unit_return1 :: IO ()
 unit_return1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   return 1;
 }
   |]
@@ -30,7 +30,7 @@ int32 main() {
 unit_log1 :: IO ()
 unit_log1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (!!!false) {
     return 1;
   }
@@ -42,7 +42,7 @@ int32 main() {
 unit_log2 :: IO ()
 unit_log2 =
   (@?= 0) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (true && false) {
     return 1;
   }
@@ -54,7 +54,7 @@ int32 main() {
 unit_log3 :: IO ()
 unit_log3 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (true || false) {
     return 1;
   }
@@ -66,7 +66,7 @@ int32 main() {
 unit_arith1 :: IO ()
 unit_arith1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   return +1;
 }
   |]
@@ -74,7 +74,7 @@ int32 main() {
 unit_arith2 :: IO ()
 unit_arith2 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   return -(-1);
 }
   |]
@@ -82,7 +82,7 @@ int32 main() {
 unit_arith3 :: IO ()
 unit_arith3 =
   (@?= 2) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   return 1 + 1;
 }
   |]
@@ -90,7 +90,7 @@ int32 main() {
 unit_arith4 :: IO ()
 unit_arith4 =
   (@?= 3) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   return 4 - 1;
 }
   |]
@@ -98,7 +98,7 @@ int32 main() {
 unit_arith5 :: IO ()
 unit_arith5 =
   (@?= 4) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   return 2 * 2;
 }
   |]
@@ -106,7 +106,7 @@ int32 main() {
 unit_arith6 :: IO ()
 unit_arith6 =
   (@?= 5) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   return 25 / 5;
 }
   |]
@@ -114,7 +114,7 @@ int32 main() {
 unit_comp1 :: IO ()
 unit_comp1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (1 == 1) {
     return 1;
   }
@@ -126,7 +126,7 @@ int32 main() {
 unit_comp2 :: IO ()
 unit_comp2 =
   (@?= 0) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (1 != 1) {
     return 1;
   }
@@ -138,7 +138,7 @@ int32 main() {
 unit_comp3 :: IO ()
 unit_comp3 =
   (@?= 0) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (1 < 1) {
     return 1;
   }
@@ -150,7 +150,7 @@ int32 main() {
 unit_comp4 :: IO ()
 unit_comp4 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (1 <= 1) {
     return 1;
   }
@@ -162,7 +162,7 @@ int32 main() {
 unit_comp5 :: IO ()
 unit_comp5 =
   (@?= 0) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (1 > 1) {
     return 1;
   }
@@ -174,7 +174,7 @@ int32 main() {
 unit_comp6 :: IO ()
 unit_comp6 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (1 >= 1) {
     return 1;
   }
@@ -186,8 +186,8 @@ int32 main() {
 unit_var1 :: IO ()
 unit_var1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
-  int32 a = 1;
+main(): i32 {
+  i32 a = 1;
   return a;
 }
   |]
@@ -196,9 +196,9 @@ int32 main() {
 xunit_var2 :: IO ()
 xunit_var2 =
   (@?= 4) =<< interpretWithExitCode [s|
-int32 main() {
-  int32 a;
-  int32 b;
+main(): i32 {
+  i32 a;
+  i32 b;
   a = b = 2;
   return a + b;
 }
@@ -207,9 +207,9 @@ int32 main() {
 unit_pointer1 :: IO ()
 unit_pointer1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
-  int32 a = 1;
-  int32 *b = &a;
+main(): i32 {
+  i32 a = 1;
+  i32 *b = &a;
   return *b;
 }
   |]
@@ -217,10 +217,10 @@ int32 main() {
 unit_pointer2 :: IO ()
 unit_pointer2 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
-  int32 a = 1;
-  int32 *b = &a;
-  int32 **c = &b;
+main(): i32 {
+  i32 a = 1;
+  i32 *b = &a;
+  i32 **c = &b;
   return **c;
 }
   |]
@@ -228,34 +228,34 @@ int32 main() {
 unit_pointer3 :: IO ()
 unit_pointer3 =
   checkCode [s|
-void main() {
-  int32 a = 1;
-  int32 **b = &a;
-  int32 *c = *b;
-  int32 d = *c;
+main(): void {
+  i32 a = 1;
+  i32 **b = &a;
+  i32 *c = *b;
+  i32 d = *c;
 }
   |]
 
 unit_cast1 :: IO ()
 unit_cast1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
-  return (int32)1.2;
+main(): i32 {
+  return (i32)1.2;
 }
   |]
 
 unit_cast2 :: IO ()
 unit_cast2 =
   checkCode [s|
-void main() {
-  float32 a = (int32)1;
+main(): void {
+  f32 a = (i32)1;
 }
   |]
 
 unit_if1 :: IO ()
 unit_if1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (false) {
     return 0;
   } else if (false) {
@@ -271,7 +271,7 @@ int32 main() {
 unit_if2 :: IO ()
 unit_if2 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   if (false) {
     return 0;
   } else if (true) {
@@ -291,7 +291,7 @@ int32 main() {
 unit_while1 :: IO ()
 unit_while1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   while (true) {
     return 1;
   }
@@ -303,9 +303,9 @@ int32 main() {
 unit_while2 :: IO ()
 unit_while2 =
   (@?= 55) =<< interpretWithExitCode [s|
-int32 main() {
-  int32 a = 0;
-  int32 i = 1;
+main(): i32 {
+  i32 a = 0;
+  i32 i = 1;
 
   while (i <= 10) {
     a = a + i;
@@ -319,7 +319,7 @@ int32 main() {
 unit_for1 :: IO ()
 unit_for1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 main() {
+main(): i32 {
   for (;;) {
     return 1;
   }
@@ -331,10 +331,10 @@ int32 main() {
 unit_for2 :: IO ()
 unit_for2 =
   (@?= 55) =<< interpretWithExitCode [s|
-int32 main() {
-  int32 a = 0;
+main(): i32 {
+  i32 a = 0;
 
-  for (int32 i = 1; i <= 10; i = i + 1) {
+  for (i32 i = 1; i <= 10; i = i + 1) {
     a = a + i;
   }
 
@@ -345,11 +345,11 @@ int32 main() {
 unit_call1 :: IO ()
 unit_call1 =
   (@?= 1) =<< interpretWithExitCode [s|
-int32 id(int32 a) {
+id(i32 a): i32 {
   return a;
 }
 
-int32 main() {
+main(): i32 {
   return id(1);
 }
   |]
@@ -357,7 +357,7 @@ int32 main() {
 unit_call2 :: IO ()
 unit_call2 =
   (@?= 120) =<< interpretWithExitCode [s|
-int32 factorial(int32 n) {
+factorial(i32 n): i32 {
   if (n <= 1) {
     return 1;
   }
@@ -365,7 +365,7 @@ int32 factorial(int32 n) {
   return n * factorial(n - 1);
 }
 
-int32 main() {
+main(): i32 {
   return factorial(5);
 }
   |]
@@ -377,7 +377,7 @@ unit_comment1 =
  * Hello, world!
  */
 
-void main() {
+main(): void {
   // The main is empty
 }
   |]

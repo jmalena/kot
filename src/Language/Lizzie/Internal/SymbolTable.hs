@@ -104,7 +104,7 @@ buildSymTableProg prog = do
 buildSymTableDecl :: (MonadState BuildSymTableState m, MonadError Error m)
                   => SrcAnnDecl -> m SymAnnDecl
 buildSymTableDecl (Ann pos (Identity decl)) = case decl of
-  FunctionDeclaration t s params body -> do
+  FunctionDeclaration s params t body -> do
     let pts = bareId . fst <$> params
     defined <- isFunctionDefined s
     when defined $ throwError (RedefinedFunction pos s)
@@ -114,7 +114,7 @@ buildSymTableDecl (Ann pos (Identity decl)) = case decl of
         defineVariable ps (bareId pt)
       withScope $ do
         body' <- mapM buildSymTableStmt body
-        ret (FunctionDeclaration t s params body')
+        ret (FunctionDeclaration s params t body')
   where ret x = do
           ft <- gets funSymTable
           vt <- gets varSymTable

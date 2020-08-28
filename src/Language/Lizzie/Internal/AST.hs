@@ -19,7 +19,7 @@ import           Data.Word
 type Symbol = B.Short.ShortByteString
 
 data Decl stmt type_
-  = FunctionDeclaration type_ Symbol [(type_, Symbol)] [stmt]
+  = FunctionDeclaration Symbol [(type_, Symbol)] type_ [stmt]
   deriving (Eq, Ord, Show)
 
 data StmtF expr type_ f

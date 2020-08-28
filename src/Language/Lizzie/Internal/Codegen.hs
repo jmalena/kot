@@ -121,7 +121,7 @@ codegenProgram externs ast = do
 
 codegenDecl :: TypAnnDecl -> CGModule ()
 codegenDecl (Ann _ (Identity decl)) = case decl of
-  AST.FunctionDeclaration t s args body ->
+  AST.FunctionDeclaration s args t body ->
     let llvmArgs = (\(t, s) -> (toLLVMType (bareId t), NoParameterName)) <$> args
     in mdo
       addr <- function (Name s) llvmArgs (toLLVMType (bareId t)) $ \argOps -> do

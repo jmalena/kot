@@ -139,7 +139,7 @@ declaration = functionDeclaration
 
 functionDeclaration :: Parser SrcAnnDecl
 functionDeclaration = withSrcAnnId $
-  FunctionDeclaration <$> type_ <*> identifier <*> params <*> block stmt
+  FunctionDeclaration <$> identifier <*> params <*> (symbol ":" *> type_) <*> block stmt
   where params = parens (param `sepBy` symbol ",")
         param = (,) <$> type_ <*> identifier
 
@@ -250,12 +250,12 @@ type_ = withSrcAnnId $ typeName >>= stars
   where typeName = choice
           [ Void <$ symbol "void"
           , Bool <$ symbol "bool"
-          , Int8 <$ symbol "int8"
-          , Int16 <$ symbol "int16"
-          , Int32 <$ symbol "int32"
-          , Int64 <$ symbol "int64"
-          , Float32 <$ symbol "float32"
-          , Float64 <$ symbol "float64"
+          , Int8 <$ symbol "i8"
+          , Int16 <$ symbol "i16"
+          , Int32 <$ symbol "i32"
+          , Int64 <$ symbol "i64"
+          , Float32 <$ symbol "f32"
+          , Float64 <$ symbol "f64"
           ]
         stars t = optional (symbol "*") >>= \case
           Just _  -> stars (Ptr t)

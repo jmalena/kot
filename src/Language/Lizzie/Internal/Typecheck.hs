@@ -64,11 +64,11 @@ typecheckProg = mapM typecheckDecl
 
 typecheckDecl :: (MonadError Error m) => SymAnnDecl -> m TypAnnDecl
 typecheckDecl (Ann ann@(pos, _, _) (Identity decl)) = case decl of
-  FunctionDeclaration t s params body -> do
+  FunctionDeclaration s params t body -> do
     let rt = bareId t
     (rt', body') <- typecheckBlock rt body
     unless (rt `hasType` void || isJust rt') $ throwError (MissingReturn pos)
-    ret (FunctionDeclaration t s params body')
+    ret (FunctionDeclaration s params t body')
   where ret x = pure (Ann ann (Identity x))
 
 typecheckBlock :: (MonadError Error m) => Type -> [SymAnnStmt] -> m (Maybe Type, [TypAnnStmt])
