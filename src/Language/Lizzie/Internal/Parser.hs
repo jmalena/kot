@@ -108,7 +108,9 @@ symbol s = B.Short.toShort <$> Lexer.symbol spaceConsumer s
 
 identifier :: Parser Symbol
 identifier = B.Short.pack <$> lexeme parser <?> "identifier"
-  where parser = (:) <$> letterChar <*> many alphaNumChar
+  where parser = (:) <$> (letterChar <|> underscore) <*> many (alphaNumChar <|> underscore <|> quote)
+        underscore = char 95
+        quote = char 39
 
 boolLiteral :: Parser Bool
 boolLiteral = choice

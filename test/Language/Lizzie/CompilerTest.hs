@@ -192,9 +192,19 @@ main(): i32 {
 }
   |]
 
+unit_var2 :: IO ()
+unit_var2 =
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  i32 a;
+  a = 1;
+  return a;
+}
+  |]
+
 -- TODO: fix this test
-xunit_var2 :: IO ()
-xunit_var2 =
+xunit_var3 :: IO ()
+xunit_var3 =
   (@?= 4) =<< interpretWithExitCode [s|
 main(): i32 {
   i32 a;
@@ -285,6 +295,26 @@ main(): i32 {
   }
 
   return 0;
+}
+  |]
+
+unit_if3 :: IO ()
+unit_if3 =
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  i32 a;
+
+  if (true) {
+    if (true) {
+      a = 2;
+    } else {
+      a = 3;
+    }
+
+    a = 1;
+  }
+
+  return a;
 }
   |]
 

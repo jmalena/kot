@@ -205,7 +205,7 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
         assertType spanOp2 (castable t1) t2
         retFix Bool (BinaryOperator op e1' e2')
       Assign -> do
-        unless (isLValueF e1') $ throwError (ExpectLValue pos)
+        unless (isLValueF e1') $ throwError (ExpectLValue spanOp1)
         assertType spanOp2 (castable t1) t2
         let t = joinNumberTypes t1 t2
         retFix (fromJust t) (BinaryOperator op e1' e2')
@@ -220,11 +220,12 @@ typecheckExprWithHint t = typecheckExprGeneral (Just t)
 --------------------------------------------------------------------------------
 -- Helpers
 
---isLValueF :: Fix (Ann x (ExprF  b c)) -> Bool
+-- isLValueF :: Fix (Ann x (ExprF  b c)) -> Bool
 isLValueF (Fix (Ann _ expr)) = case expr of
-  VariableReference _                             -> True
-  UnaryOperator (Ann _ (Identity Dereference)) e' -> isLValueF e'
-  _                                               -> False
+  VariableReference _                                -> True
+  UnaryOperator (Ann _ (Identity Dereference)) e'    -> isLValueF e'
+  -- BinaryOperator (Ann _ (Identity Add))      e1' e2' -> isLValueF e1' || isLValueF e2'
+  -- BinaryOperator (Ann _ (Identity Subtract)) e1' e2' -> isLValueF e1' || isLValueF e2'
 
 pointerArithmeticOp :: Type -> TypePredicate
 pointerArithmeticOp t = case t of

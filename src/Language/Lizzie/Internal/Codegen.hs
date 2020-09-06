@@ -15,6 +15,7 @@ import           Data.Foldable hiding (null)
 import           Data.Functor.Identity
 import qualified Data.List.NonEmpty          as NonEmpty
 import           Data.Maybe
+import           Data.Word
 
 import           Language.Lizzie.Monad
 import           Language.Lizzie.Internal.Annotation
@@ -47,7 +48,7 @@ type CGModule = ModuleBuilderT (State CGModuleState)
 
 data CGModuleState = CGModuleState
   { funAddrs :: SymTable.SymbolTable AST.Symbol Operand
-  , varAddrs :: SymTable.SymbolTable AST.Symbol Operand
+  , varAddrs :: SymTable.SymbolTable AST.Symbol (Operand, AST.Type)
   , returnType :: Maybe AST.Type
   }
 
@@ -87,21 +88,25 @@ setFunAddr k v = do
   tab <- gets funAddrs
   modify $ \s -> s { funAddrs = SymTable.insert k v tab }
 
-setVarAddr :: (MonadState CGModuleState m) => AST.Symbol -> Operand -> m ()
-setVarAddr k v = do
+setVarAddr :: (MonadState CGModuleState m) => AST.Symbol -> Operand -> AST.Type -> m ()
+setVarAddr k v t = do
   tab <- gets varAddrs
-  modify $ \s -> s { varAddrs = SymTable.insert k v tab }
+  modify $ \s -> s { varAddrs = SymTable.insert k (v, t) tab }
 
 getFunAddr :: (MonadState CGModuleState m) => AST.Symbol -> m Operand
 getFunAddr k = SymTable.lookup' k <$> gets funAddrs
 
-getVarAddr :: (MonadState CGModuleState m) => AST.Symbol -> m Operand
+getVarAddr :: (MonadState CGModuleState m) => AST.Symbol -> m (Operand, AST.Type)
 getVarAddr k = SymTable.lookup' k <$> gets varAddrs
 
-getLValueAddr :: (MonadState CGModuleState m) => TypAnnExpr -> m Operand
+getLValueAddr :: (MonadState CGModuleState m, MonadIRBuilder m) => TypAnnExpr -> m (Operand, AST.Type)
 getLValueAddr (Fix (Ann _ expr)) = case expr of
-  AST.VariableReference s                                 -> getVarAddr s
-  AST.UnaryOperator (Ann _ (Identity AST.Dereference)) e' -> getLValueAddr e'
+  AST.VariableReference s -> getVarAddr s
+  AST.UnaryOperator _ e'  -> do
+    (addr, t) <- getLValueAddr e'
+    addr' <- load addr (sizeOf t)
+    let AST.Ptr t' = t
+    pure (addr', t')
 
 withReturn :: (MonadState CGModuleState m) => AST.Type -> m a -> m a
 withReturn t m = do
@@ -115,8 +120,9 @@ withReturn t m = do
 
 codegenProgram :: [(AST.Symbol, (AST.Type, [AST.Type]))] -> [TypAnnDecl] -> CGModule ()
 codegenProgram externs ast = do
-  forM_ externs $ \(name, (t, params)) ->
-    extern (Name name) (toLLVMType <$> params) (toLLVMType t)
+  forM_ externs $ \(name, (t, params)) -> do
+    addr <- extern (Name name) (toLLVMType <$> params) (toLLVMType t)
+    setFunAddr name addr
   mapM_ codegenDecl ast
 
 codegenDecl :: TypAnnDecl -> CGModule ()
@@ -128,9 +134,11 @@ codegenDecl (Ann _ (Identity decl)) = case decl of
         setFunAddr s addr
         withScope $ do
           forM (zip args argOps) $ \((argType, argName), argOp) -> do
-            addr <- alloca (toLLVMType (bareId argType)) Nothing 0
-            store addr 0 argOp
-            setVarAddr argName addr
+            let argType' = bareId argType
+            let align = sizeOf argType'
+            addr <- alloca (toLLVMType (bareId argType)) Nothing align
+            store addr align argOp
+            setVarAddr argName addr argType'
           withReturn (bareId t) $
             codegenBlock body
       pure ()
@@ -217,14 +225,16 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
       pure (arg', [])
     call addr args'
   AST.VariableReference s -> do
-    addr <- getVarAddr s
-    load addr 0
+    (addr, t) <- getVarAddr s
+    load addr (sizeOf t)
   AST.VariableDefinition t s e -> do
-    addr <- alloca (toLLVMType (bareId t)) Nothing 0
-    when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr 0
+    let t' = bareId t
+    let align = sizeOf t'
+    addr <- alloca (toLLVMType (bareId t)) Nothing align
+    when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr align
     -- TODO: init default value of expression
-    setVarAddr s addr
-    load addr 0
+    setVarAddr s addr t'
+    pure addr
   AST.BoolLiteral False -> pure (constBool False)
   AST.BoolLiteral True -> pure (constBool True)
   AST.CharLiteral a -> pure $ int8 (fromIntegral a)
@@ -242,11 +252,12 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
       AST.Not ->
         codegenExpr e >>= xor (constBool True)
       AST.Address ->
-        getLValueAddr e
+        fst <$> getLValueAddr e
       AST.Dereference -> do
-        addr <- getLValueAddr e
-        addr' <- load addr 0
-        load addr' 0
+        (addr, t) <- getLValueAddr e
+        addr' <- load addr (sizeOf t)
+        let AST.Ptr t' = t
+        load addr' (sizeOf t')
   AST.BinaryOperator op e1 e2 -> do
     let t1 = typeAnnF e1
     let t2 = typeAnnF e2
@@ -409,8 +420,8 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
         I.or e1' e2'
       AST.Assign -> do
         e2' <- codegenExprWithCast t1 e2
-        addr <- getLValueAddr e1
-        store addr 0 e2'
+        (addr, t) <- getLValueAddr e1
+        store addr (sizeOf t) e2'
         pure e2'
 
 codegenExprWithCast :: AST.Type -> TypAnnExpr -> CGBlock Operand
@@ -469,3 +480,13 @@ toLLVMType AST.Int64   = LT.i64
 toLLVMType AST.Float32 = LT.float
 toLLVMType AST.Float64 = LT.double
 toLLVMType (AST.Ptr t) = LT.ptr (toLLVMType t)
+
+sizeOf :: AST.Type -> Word32
+sizeOf AST.Bool    = 1
+sizeOf AST.Int8    = 1
+sizeOf AST.Int16   = 2
+sizeOf AST.Int32   = 4
+sizeOf AST.Int64   = 8
+sizeOf AST.Float32 = 4
+sizeOf AST.Float64 = 8
+sizeOf (AST.Ptr t) = 8
