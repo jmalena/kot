@@ -51,13 +51,11 @@ data BuildSymTableState = BuildSymTableState
   , varSymTable :: VarSymbolTable
   }
 
-makeBuildSymTableState :: (MonadReader CompileEnv m) => m BuildSymTableState
-makeBuildSymTableState = do
-  funSymTable <- SymTable.fromList <$> reader externs
-  pure $ BuildSymTableState funSymTable SymTable.empty
+makeBuildSymTableState :: BuildSymTableState
+makeBuildSymTableState = BuildSymTableState SymTable.empty SymTable.empty
 
 buildSymTable :: (MonadReader CompileEnv m, MonadError Error m) => [SrcAnnDecl] -> m [SymAnnDecl]
-buildSymTable prog = makeBuildSymTableState >>= evalStateT (buildSymTableProg prog)
+buildSymTable prog = evalStateT (buildSymTableProg prog) makeBuildSymTableState
 
 withScope :: (MonadState BuildSymTableState m) => m a -> m a
 withScope f = do
@@ -115,6 +113,12 @@ buildSymTableDecl (Ann pos (Identity decl)) = case decl of
       withScope $ do
         body' <- mapM buildSymTableStmt body
         ret (FunctionDeclaration s params t body')
+  FunctionExtern s params t -> do
+    let pts = bareId <$> params
+    defined <- isFunctionDefined s
+    when defined $ throwError (RedefinedFunction pos s)
+    defineFunction s (bareId t, pts)
+    ret (FunctionExtern s params t)
   where ret x = do
           ft <- gets funSymTable
           vt <- gets varSymTable

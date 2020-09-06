@@ -69,6 +69,8 @@ typecheckDecl (Ann ann@(pos, _, _) (Identity decl)) = case decl of
     (rt', body') <- typecheckBlock rt body
     unless (rt `hasType` void || isJust rt') $ throwError (MissingReturn pos)
     ret (FunctionDeclaration s params t body')
+  FunctionExtern s params t ->
+    ret (FunctionExtern s params t)
   where ret x = pure (Ann ann (Identity x))
 
 typecheckBlock :: (MonadError Error m) => Type -> [SymAnnStmt] -> m (Maybe Type, [TypAnnStmt])

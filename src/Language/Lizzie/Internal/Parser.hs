@@ -137,7 +137,13 @@ program :: Parser [SrcAnnDecl]
 program = spaceConsumer *> many declaration <* eof
 
 declaration :: Parser SrcAnnDecl
-declaration = functionDeclaration
+declaration = functionExtern
+              <|> functionDeclaration
+
+functionExtern :: Parser SrcAnnDecl
+functionExtern = withSrcAnnId $
+  FunctionExtern <$ symbol "extern" <*> identifier <*> params <*> (symbol ":" *> type_) <* symbol ";"
+  where params = parens (type_ `sepBy` symbol ",")
 
 functionDeclaration :: Parser SrcAnnDecl
 functionDeclaration = withSrcAnnId $

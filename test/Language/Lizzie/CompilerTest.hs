@@ -372,8 +372,8 @@ main(): i32 {
 }
   |]
 
-unit_call1 :: IO ()
-unit_call1 =
+unit_function1 :: IO ()
+unit_function1 =
   (@?= 1) =<< interpretWithExitCode [s|
 id(i32 a): i32 {
   return a;
@@ -384,8 +384,8 @@ main(): i32 {
 }
   |]
 
-unit_call2 :: IO ()
-unit_call2 =
+unit_function2 :: IO ()
+unit_function2 =
   (@?= 120) =<< interpretWithExitCode [s|
 factorial(i32 n): i32 {
   if (n <= 1) {
@@ -397,6 +397,16 @@ factorial(i32 n): i32 {
 
 main(): i32 {
   return factorial(5);
+}
+  |]
+
+unit_extern1 :: IO ()
+unit_extern1 =
+  checkCode [s|
+extern print_i32(i32): void;
+
+main(): void {
+  print_i32(1);
 }
   |]
 
@@ -416,7 +426,7 @@ main(): void {
 -- Utils
 
 compileEnv :: CompileEnv
-compileEnv = makeCompileEnv "test" []
+compileEnv = makeCompileEnv "test"
 
 checkCode :: B.ByteString -> IO ()
 checkCode input =

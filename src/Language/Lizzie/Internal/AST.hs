@@ -20,6 +20,7 @@ type Symbol = B.Short.ShortByteString
 
 data Decl stmt type_
   = FunctionDeclaration Symbol [(type_, Symbol)] type_ [stmt]
+  | FunctionExtern Symbol [type_] type_
   deriving (Eq, Ord, Show)
 
 data StmtF expr type_ f

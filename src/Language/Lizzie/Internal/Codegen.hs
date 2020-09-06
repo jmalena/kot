@@ -59,9 +59,8 @@ makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Nothing
 
 runCGModule :: (MonadReader CompileEnv m) => [TypAnnDecl] -> m LLVM.AST.Module
 runCGModule ast = do
-  ext <- reader externs
   filename <- reader sourceFilename
-  pure $ evalState (buildModuleT filename (codegenProgram ext ast)) makeCGModuleState
+  pure $ evalState (buildModuleT filename (codegenProgram ast)) makeCGModuleState
 
 codegen :: (MonadReader CompileEnv m, MonadIO m) => [TypAnnDecl] -> m (B.ByteString, B.ByteString)
 codegen ast = do
@@ -118,22 +117,18 @@ withReturn t m = do
 --------------------------------------------------------------------------------
 -- Codegen
 
-codegenProgram :: [(AST.Symbol, (AST.Type, [AST.Type]))] -> [TypAnnDecl] -> CGModule ()
-codegenProgram externs ast = do
-  forM_ externs $ \(name, (t, params)) -> do
-    addr <- extern (Name name) (toLLVMType <$> params) (toLLVMType t)
-    setFunAddr name addr
-  mapM_ codegenDecl ast
+codegenProgram :: [TypAnnDecl] -> CGModule ()
+codegenProgram ast = mapM_ codegenDecl ast
 
 codegenDecl :: TypAnnDecl -> CGModule ()
 codegenDecl (Ann _ (Identity decl)) = case decl of
-  AST.FunctionDeclaration s args t body ->
-    let llvmArgs = (\(t, s) -> (toLLVMType (bareId t), NoParameterName)) <$> args
+  AST.FunctionDeclaration s params t body ->
+    let llvmParams = (\(t, s) -> (toLLVMType (bareId t), NoParameterName)) <$> params
     in mdo
-      addr <- function (Name s) llvmArgs (toLLVMType (bareId t)) $ \argOps -> do
+      addr <- function (Name s) llvmParams (toLLVMType (bareId t)) $ \argOps -> do
         setFunAddr s addr
         withScope $ do
-          forM (zip args argOps) $ \((argType, argName), argOp) -> do
+          forM (zip params argOps) $ \((argType, argName), argOp) -> do
             let argType' = bareId argType
             let align = sizeOf argType'
             addr <- alloca (toLLVMType (bareId argType)) Nothing align
@@ -142,6 +137,10 @@ codegenDecl (Ann _ (Identity decl)) = case decl of
           withReturn (bareId t) $
             codegenBlock body
       pure ()
+  AST.FunctionExtern s params t -> do
+    let llvmParams = toLLVMType . bareId <$> params
+    addr <- extern (Name s) llvmParams (toLLVMType (bareId t))
+    setFunAddr s addr
 
 codegenBlock :: [TypAnnStmt] -> CGBlock ()
 codegenBlock body = withScope $ mapM_ codegenStmt body
