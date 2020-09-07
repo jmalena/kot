@@ -1,4 +1,4 @@
-module Language.Kot.Compiler
+module Language.Kot
   ( compile
   , errorPretty
   ) where
@@ -11,15 +11,15 @@ import Control.Monad.Except
 
 import Language.Kot.Monad
 import Language.Kot.Internal.AST
-import Language.Kot.Internal.Codegen
+import Language.Kot.Internal.CodeGen
 import Language.Kot.Internal.Error
 import Language.Kot.Internal.Parser
-import Language.Kot.Internal.SymbolTable
-import Language.Kot.Internal.Typecheck
+import Language.Kot.Internal.SymbolCheck
+import Language.Kot.Internal.TypeCheck
 
 compile :: CompileEnv -> B.ByteString -> IO (Either Error (B.ByteString, B.ByteString))
 compile env input = runExceptT (runReaderT go env)
   where go = parse input
-             >>= buildSymTable
-             >>= typecheck
-             >>= codegen
+             >>= symbolCheck
+             >>= typeCheck
+             >>= codeGen

@@ -2,13 +2,13 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-module Language.Kot.CompilerTest where
+module Language.KotTest where
 
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.UTF8 as BU
 import           Data.String.QQ
 
-import Language.Kot.Compiler
+import Language.Kot
 import Language.Kot.Monad
 
 import System.Exit

@@ -1,5 +1,4 @@
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
@@ -9,9 +8,8 @@ import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
 import qualified Data.ByteString.UTF8  as BU
 
-import Language.Kot.Compiler
+import Language.Kot
 import Language.Kot.Monad
-import Language.Kot.Internal.AST
 
 import Options.Applicative
 

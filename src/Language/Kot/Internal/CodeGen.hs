@@ -2,8 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 
-module Language.Kot.Internal.Codegen
-  ( codegen
+module Language.Kot.Internal.CodeGen
+  ( codeGen
   ) where
 
 import Control.Monad.Reader
@@ -20,7 +20,7 @@ import           Data.Word
 import           Language.Kot.Monad
 import           Language.Kot.Internal.Annotation
 import qualified Language.Kot.Internal.AST                 as AST
-import           Language.Kot.Internal.Typecheck
+import           Language.Kot.Internal.TypeCheck
 import qualified Language.Kot.Internal.Util.SymbolTable    as SymTable
 import qualified Language.Kot.Internal.Util.Type as T
 
@@ -60,10 +60,10 @@ makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Nothing
 runCGModule :: (MonadReader CompileEnv m) => [TypAnnDecl] -> m LLVM.AST.Module
 runCGModule ast = do
   filename <- reader sourceFilename
-  pure $ evalState (buildModuleT filename (codegenProgram ast)) makeCGModuleState
+  pure $ evalState (buildModuleT filename (codeGenProgram ast)) makeCGModuleState
 
-codegen :: (MonadReader CompileEnv m, MonadIO m) => [TypAnnDecl] -> m (B.ByteString, B.ByteString)
-codegen ast = do
+codeGen :: (MonadReader CompileEnv m, MonadIO m) => [TypAnnDecl] -> m (B.ByteString, B.ByteString)
+codeGen ast = do
   mod <- runCGModule ast
   liftIO $
     withContext $ \ctx ->
@@ -106,13 +106,13 @@ withReturn t m = do
   pure x
 
 --------------------------------------------------------------------------------
--- Codegen
+-- Code gen
 
-codegenProgram :: [TypAnnDecl] -> CGModule ()
-codegenProgram ast = mapM_ codegenDecl ast
+codeGenProgram :: [TypAnnDecl] -> CGModule ()
+codeGenProgram ast = mapM_ codeGenDecl ast
 
-codegenDecl :: TypAnnDecl -> CGModule ()
-codegenDecl (Ann _ (Identity decl)) = case decl of
+codeGenDecl :: TypAnnDecl -> CGModule ()
+codeGenDecl (Ann _ (Identity decl)) = case decl of
   AST.FunctionDeclaration s params t body ->
     let llvmParams = (\(t, s) -> (toLLVMType (bareId t), NoParameterName)) <$> params
     in mdo
@@ -126,30 +126,30 @@ codegenDecl (Ann _ (Identity decl)) = case decl of
             store addr align argOp
             setVarAddr argName addr argType'
           withReturn (bareId t) $
-            codegenBlock body
+            codeGenBlock body
       pure ()
   AST.FunctionExtern s params t -> do
     let llvmParams = toLLVMType . bareId <$> params
     addr <- extern (Name s) llvmParams (toLLVMType (bareId t))
     setFunAddr s addr
 
-codegenBlock :: [TypAnnStmt] -> CGBlock ()
-codegenBlock body = withScope $ mapM_ codegenStmt body
+codeGenBlock :: [TypAnnStmt] -> CGBlock ()
+codeGenBlock body = withScope $ mapM_ codeGenStmt body
 
-codegenStmt :: TypAnnStmt -> CGBlock ()
-codegenStmt (Fix (Ann _ stmt)) = case stmt of
+codeGenStmt :: TypAnnStmt -> CGBlock ()
+codeGenStmt (Fix (Ann _ stmt)) = case stmt of
   AST.If branches -> mdo
     forM branches $ \(cond, body) -> mdo
       case cond of
         Just condExpr -> do
-          condExpr' <- codegenExpr condExpr
+          condExpr' <- codeGenExpr condExpr
           condBr condExpr' bodyBlock testBlock
         Nothing ->
           br bodyBlock
       -- body block
       ---------------
       bodyBlock <- block
-      codegenBlock body
+      codeGenBlock body
       hasTerm <- hasTerminator
       unless hasTerm $ br exitBlock
       -- test block
@@ -167,12 +167,12 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
       -- test block
       ---------------
       testBlock <- block
-      cond' <- codegenExpr cond
+      cond' <- codeGenExpr cond
       condBr cond' bodyBlock exitBlock
       -- body block
       ---------------
       bodyBlock <- block
-      codegenBlock body
+      codeGenBlock body
       hasTerm <- hasTerminator
       unless hasTerm $ br testBlock
       -- exit block
@@ -181,49 +181,49 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
       pure ()
   AST.For (pre, cond, post) body ->
     withScope $ mdo
-      when (isJust pre) $ void (codegenExpr (fromJust pre))
+      when (isJust pre) $ void (codeGenExpr (fromJust pre))
       br testBlock
       -- test block
       ---------------
       testBlock <- block
-      cond' <- maybe (pure (constBool True)) codegenExpr cond
+      cond' <- maybe (pure (constBool True)) codeGenExpr cond
       condBr cond' bodyBlock exitBlock
       -- body block
       ---------------
       bodyBlock <- block
-      codegenBlock body
-      when (isJust post) $ void (codegenExpr (fromJust post))
+      codeGenBlock body
+      when (isJust post) $ void (codeGenExpr (fromJust post))
       hasTerm <- hasTerminator
       unless hasTerm $ br testBlock
       -- exit block
       ---------------
       exitBlock <- block
       pure ()
-  AST.Expr e -> void $ codegenExpr e
+  AST.Expr e -> void $ codeGenExpr e
   AST.Return e -> do
     t <- fromJust <$> gets returnType
-    e' <- codegenExprWithCast t e
+    e' <- codeGenExprWithCast t e
     ret e'
 
-codegenLValue :: TypAnnExpr -> CGBlock (Operand, AST.Type)
-codegenLValue (Fix (Ann (_, ft, _, t) expr)) = case expr of
+codeGenLValue :: TypAnnExpr -> CGBlock (Operand, AST.Type)
+codeGenLValue (Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.VariableReference s ->
     getVarAddr s
   AST.UnaryOperator op e ->
     case bareId op of
       AST.Dereference -> do
-        (addr, t) <- codegenLValue e
+        (addr, t) <- codeGenLValue e
         addr' <- load addr (sizeOf t)
         let AST.Ptr t' = t
         pure (addr', t')
 
-codegenExpr :: TypAnnExpr -> CGBlock Operand
-codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
+codeGenExpr :: TypAnnExpr -> CGBlock Operand
+codeGenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.FunctionCall s args -> do
     let (_, sig) = SymTable.lookup' s ft
     addr <- getFunAddr s
     args' <- forM (zip sig args) $ \(t, arg) -> do
-      arg' <- codegenExprWithCast t arg
+      arg' <- codeGenExprWithCast t arg
       pure (arg', [])
     call addr args'
   AST.VariableReference s -> do
@@ -235,7 +235,7 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
     addr <- alloca (toLLVMType (bareId t)) Nothing align
     case e of
       Just e' ->
-        codegenExprWithCast (bareId t) e' >>= store addr align
+        codeGenExprWithCast (bareId t) e' >>= store addr align
       Nothing -> case t' of
         t | t `T.hasType` T.bool ->
           store addr (sizeOf t) (constBool False)
@@ -251,20 +251,20 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.IntLiteral a -> pure $ constNum t (fromIntegral a)
   AST.FloatLiteral a -> pure $ constNum t a
   AST.StringLiteral s -> undefined
-  AST.TypeCast t e -> codegenExprWithCast (bareId t) e
+  AST.TypeCast t e -> codeGenExprWithCast (bareId t) e
   AST.UnaryOperator op e ->
     case bareId op of
       AST.Negate -> do
-        e' <- codegenExpr e
+        e' <- codeGenExpr e
         case typeAnnF e of
           t | t `T.hasType` T.int   -> sub (constNum t 0) e'
           t | t `T.hasType` T.float -> fsub (constNum t 0) e'
       AST.Not ->
-        codegenExpr e >>= xor (constBool True)
+        codeGenExpr e >>= xor (constBool True)
       AST.Address ->
-        fst <$> codegenLValue e
+        fst <$> codeGenLValue e
       AST.Dereference -> do
-        (addr, t) <- codegenLValue e
+        (addr, t) <- codeGenLValue e
         addr' <- load addr (sizeOf t)
         let AST.Ptr t' = t
         load addr' (sizeOf t')
@@ -275,168 +275,168 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
     case bareId op of
       AST.Add -> case (t1, t2) of
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExpr e2
           gep e1' [e2']
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExprWithCast AST.Int64 e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExprWithCast AST.Int64 e2
           gep e1' [e2']
         (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExprWithCast AST.Int64 e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExprWithCast AST.Int64 e1
+          e2' <- codeGenExpr e2
           gep e2' [e1']
         (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
-          e1' <- codegenExprWithCast jt e1
-          e2' <- codegenExprWithCast jt e2
+          e1' <- codeGenExprWithCast jt e1
+          e2' <- codeGenExprWithCast jt e2
           case jt of
             t | t `T.hasType` T.int   -> add e1' e2'
             t | t `T.hasType` T.float -> fadd e1' e2'
       AST.Subtract -> case (t1, t2) of
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExpr e2
           e2'' <- sub (constNum AST.Int64 0) e2'
           gep e1' [e2'']
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExprWithCast AST.Int64 e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExprWithCast AST.Int64 e2
           e2'' <- sub (constNum AST.Int64 0) e2'
           gep e1' [e2'']
         (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExprWithCast AST.Int64 e1
+          e1' <- codeGenExprWithCast AST.Int64 e1
           e1'' <- sub (constNum AST.Int64 0) e1'
-          e2' <- codegenExpr e2
+          e2' <- codeGenExpr e2
           gep e2' [e1'']
         (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
-          e1' <- codegenExprWithCast jt e1
-          e2' <- codegenExprWithCast jt e2
+          e1' <- codeGenExprWithCast jt e1
+          e2' <- codeGenExprWithCast jt e2
           case jt of
             t | t `T.hasType` T.int   -> sub e1' e2'
             t | t `T.hasType` T.float -> fsub e1' e2'
       AST.Multiply -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
+        e1' <- codeGenExprWithCast jt e1
+        e2' <- codeGenExprWithCast jt e2
         case jt of
           t | t `T.hasType` T.int   -> mul e1' e2'
           t | t `T.hasType` T.float -> fmul e1' e2'
       AST.Divide -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
+        e1' <- codeGenExprWithCast jt e1
+        e2' <- codeGenExprWithCast jt e2
         case jt of
           t | t `T.hasType` T.int   -> sdiv e1' e2'
           t | t `T.hasType` T.float -> fdiv e1' e2'
       AST.LessThan -> case (t1, t2) of
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
           -- TODO: join pointer types
-          e1' <- codegenExpr e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExpr e2
           icmp IP.ULT e1' e2'
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExprWithCast t1 e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExprWithCast t1 e2
           icmp IP.ULT e1' e2'
         (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExprWithCast t2 e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExprWithCast t2 e1
+          e2' <- codeGenExpr e2
           icmp IP.ULT e1' e2'
         (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
-          e1' <- codegenExprWithCast jt e1
-          e2' <- codegenExprWithCast jt e2
+          e1' <- codeGenExprWithCast jt e1
+          e2' <- codeGenExprWithCast jt e2
           case jt of
             t | t `T.hasType` T.int   -> icmp IP.SLT e1' e2'
             t | t `T.hasType` T.float -> fcmp FP.OLT e1' e2'
       AST.LessThanEqual -> case (t1, t2) of
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
           -- TODO: join pointer types
-          e1' <- codegenExpr e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExpr e2
           icmp IP.ULE e1' e2'
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExprWithCast t1 e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExprWithCast t1 e2
           icmp IP.ULE e1' e2'
         (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExprWithCast t2 e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExprWithCast t2 e1
+          e2' <- codeGenExpr e2
           icmp IP.ULE e1' e2'
         (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
-          e1' <- codegenExprWithCast jt e1
-          e2' <- codegenExprWithCast jt e2
+          e1' <- codeGenExprWithCast jt e1
+          e2' <- codeGenExprWithCast jt e2
           case jt of
             t | t `T.hasType` T.int   -> icmp IP.SLE e1' e2'
             t | t `T.hasType` T.float -> fcmp FP.OLE e1' e2'
       AST.GreaterThan -> case (t1, t2) of
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
           -- TODO: join pointer types
-          e1' <- codegenExpr e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExpr e2
           icmp IP.UGT e1' e2'
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExprWithCast t1 e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExprWithCast t1 e2
           icmp IP.UGT e1' e2'
         (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExprWithCast t2 e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExprWithCast t2 e1
+          e2' <- codeGenExpr e2
           icmp IP.UGT e1' e2'
         (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
-          e1' <- codegenExprWithCast jt e1
-          e2' <- codegenExprWithCast jt e2
+          e1' <- codeGenExprWithCast jt e1
+          e2' <- codeGenExprWithCast jt e2
           case jt of
             t | t `T.hasType` T.int   -> icmp IP.SGT e1' e2'
             t | t `T.hasType` T.float -> fcmp FP.OGT e1' e2'
       AST.GreaterThanEqual -> case (t1, t2) of
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
           -- TODO: join pointer types
-          e1' <- codegenExpr e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExpr e2
           icmp IP.UGE e1' e2'
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
-          e1' <- codegenExpr e1
-          e2' <- codegenExprWithCast t1 e2
+          e1' <- codeGenExpr e1
+          e2' <- codeGenExprWithCast t1 e2
           icmp IP.UGE e1' e2'
         (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
-          e1' <- codegenExprWithCast t2 e1
-          e2' <- codegenExpr e2
+          e1' <- codeGenExprWithCast t2 e1
+          e2' <- codeGenExpr e2
           icmp IP.UGE e1' e2'
         (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
-          e1' <- codegenExprWithCast jt e1
-          e2' <- codegenExprWithCast jt e2
+          e1' <- codeGenExprWithCast jt e1
+          e2' <- codeGenExprWithCast jt e2
           case jt of
             t | t `T.hasType` T.int   -> icmp IP.SGE e1' e2'
             t | t `T.hasType` T.float -> fcmp FP.OGE e1' e2'
       AST.Equal -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
+        e1' <- codeGenExprWithCast jt e1
+        e2' <- codeGenExprWithCast jt e2
         case jt of
           -- TODO: compare pointers
           t | t `T.hasType` T.int   -> icmp IP.EQ e1' e2'
           t | t `T.hasType` T.float -> fcmp FP.OEQ e1' e2'
       AST.NotEqual -> do
-        e1' <- codegenExprWithCast jt e1
-        e2' <- codegenExprWithCast jt e2
+        e1' <- codeGenExprWithCast jt e1
+        e2' <- codeGenExprWithCast jt e2
         case jt of
           -- TODO: compare pointers
           t | t `T.hasType` T.int   -> icmp IP.NE e1' e2'
           t | t `T.hasType` T.float -> fcmp FP.ONE e1' e2'
       AST.And -> do
-        e1' <- codegenExpr e1
-        e2' <- codegenExpr e2
+        e1' <- codeGenExpr e1
+        e2' <- codeGenExpr e2
         I.and e1' e2'
       AST.Or -> do
-        e1' <- codegenExpr e1
-        e2' <- codegenExpr e2
+        e1' <- codeGenExpr e1
+        e2' <- codeGenExpr e2
         I.or e1' e2'
       AST.Assign -> do
-        (addr, t) <- codegenLValue e1
-        e2' <- codegenExprWithCast t e2
+        (addr, t) <- codeGenLValue e1
+        e2' <- codeGenExprWithCast t e2
         store addr (sizeOf t) e2'
         pure e2'
 
-codegenExprWithCast :: AST.Type -> TypAnnExpr -> CGBlock Operand
-codegenExprWithCast t' e@(Fix (Ann (_, _, _, t) _)) = do
-  e' <- codegenExpr e
+codeGenExprWithCast :: AST.Type -> TypAnnExpr -> CGBlock Operand
+codeGenExprWithCast t' e@(Fix (Ann (_, _, _, t) _)) = do
+  e' <- codeGenExpr e
   case (t, t') of
     (t, t') | t `T.hasType` T.pointer && t' `T.hasType` T.pointer ->
       bitcast e' (toLLVMType t')
@@ -464,7 +464,7 @@ codegenExprWithCast t' e@(Fix (Ann (_, _, _, t) _)) = do
       pure e'
 
 --------------------------------------------------------------------------------
--- Codegen helpers
+-- Code gen helpers
 
 constBool :: Bool -> Operand
 constBool False = ConstantOperand (C.Int 1 0)

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Language.Kot.Internal.SymbolTable
+module Language.Kot.Internal.SymbolCheck
   ( SymAnn
   , SymAnnFix
   , SymAnnDecl
@@ -9,7 +9,7 @@ module Language.Kot.Internal.SymbolTable
   , SymAnnExpr
   , FunSymbolTable
   , VarSymbolTable
-  , buildSymTable
+  , symbolCheck
   ) where
 
 import Control.Monad.Except
@@ -46,18 +46,18 @@ type SymAnnExpr  = SymAnnFix SymAnnExprF
 --------------------------------------------------------------------------------
 -- Monad
 
-data BuildSymTableState = BuildSymTableState
+data SymbolCheckState = SymbolCheckState
   { funSymTable :: FunSymbolTable
   , varSymTable :: VarSymbolTable
   }
 
-makeBuildSymTableState :: BuildSymTableState
-makeBuildSymTableState = BuildSymTableState SymTable.empty SymTable.empty
+makeSymbolCheckState :: SymbolCheckState
+makeSymbolCheckState = SymbolCheckState SymTable.empty SymTable.empty
 
-buildSymTable :: (MonadReader CompileEnv m, MonadError Error m) => [SrcAnnDecl] -> m [SymAnnDecl]
-buildSymTable prog = evalStateT (buildSymTableProg prog) makeBuildSymTableState
+symbolCheck :: (MonadReader CompileEnv m, MonadError Error m) => [SrcAnnDecl] -> m [SymAnnDecl]
+symbolCheck prog = evalStateT (symbolCheckProg prog) makeSymbolCheckState
 
-withScope :: (MonadState BuildSymTableState m) => m a -> m a
+withScope :: (MonadState SymbolCheckState m) => m a -> m a
 withScope f = do
   ft <- gets funSymTable
   vt <- gets varSymTable
@@ -66,42 +66,42 @@ withScope f = do
   modify $ \s -> s { funSymTable = ft, varSymTable = vt }
   pure res
 
-defineFunction :: (MonadState BuildSymTableState m)
+defineFunction :: (MonadState SymbolCheckState m)
                => Symbol -> (Type, [Type]) -> m ()
 defineFunction k v = do
   tab <- gets funSymTable
   modify $ \s -> s { funSymTable = SymTable.insert k v tab }
 
-defineVariable :: (MonadState BuildSymTableState m)
+defineVariable :: (MonadState SymbolCheckState m)
                => Symbol -> Type -> m ()
 defineVariable k v = do
   tab <- gets varSymTable
   modify $ \s -> s { varSymTable = SymTable.insert k v tab }
 
-isFunctionDefined :: (MonadState BuildSymTableState m) => Symbol -> m Bool
+isFunctionDefined :: (MonadState SymbolCheckState m) => Symbol -> m Bool
 isFunctionDefined k = SymTable.contains k <$> gets funSymTable
 
-isVariableDefined :: (MonadState BuildSymTableState m) => Symbol -> m Bool
+isVariableDefined :: (MonadState SymbolCheckState m) => Symbol -> m Bool
 isVariableDefined k = SymTable.contains k <$> gets varSymTable
 
-isVariableDefinedTop :: (MonadState BuildSymTableState m) => Symbol -> m Bool
+isVariableDefinedTop :: (MonadState SymbolCheckState m) => Symbol -> m Bool
 isVariableDefinedTop k = SymTable.containsTop k <$> gets varSymTable
 
 --------------------------------------------------------------------------------
--- Symbol Table
+-- Symbol check
 
-buildSymTableProg :: (MonadState BuildSymTableState m, MonadError Error m)
+symbolCheckProg :: (MonadState SymbolCheckState m, MonadError Error m)
                   => [SrcAnnDecl] -> m [SymAnnDecl]
-buildSymTableProg prog = do
-  ast <- mapM buildSymTableDecl prog
+symbolCheckProg prog = do
+  ast <- mapM symbolCheckDecl prog
   mainDefined <- isFunctionDefined "main"
   unless mainDefined $
     throwError UndefinedMain
   pure ast
 
-buildSymTableDecl :: (MonadState BuildSymTableState m, MonadError Error m)
+symbolCheckDecl :: (MonadState SymbolCheckState m, MonadError Error m)
                   => SrcAnnDecl -> m SymAnnDecl
-buildSymTableDecl (Ann pos (Identity decl)) = case decl of
+symbolCheckDecl (Ann pos (Identity decl)) = case decl of
   FunctionDeclaration s params t body -> do
     let pts = bareId . fst <$> params
     defined <- isFunctionDefined s
@@ -111,7 +111,7 @@ buildSymTableDecl (Ann pos (Identity decl)) = case decl of
       forM params $ \(pt, ps) ->
         defineVariable ps (bareId pt)
       withScope $ do
-        body' <- mapM buildSymTableStmt body
+        body' <- mapM symbolCheckStmt body
         ret (FunctionDeclaration s params t body')
   FunctionExtern s params t -> do
     let pts = bareId <$> params
@@ -124,49 +124,49 @@ buildSymTableDecl (Ann pos (Identity decl)) = case decl of
           vt <- gets varSymTable
           pure (Ann (pos, ft, vt) (Identity x))
 
-buildSymTableStmt :: (MonadState BuildSymTableState m, MonadError Error m)
+symbolCheckStmt :: (MonadState SymbolCheckState m, MonadError Error m)
                   => SrcAnnStmt -> m SymAnnStmt
-buildSymTableStmt (Fix (Ann pos stmt)) = case stmt of
+symbolCheckStmt (Fix (Ann pos stmt)) = case stmt of
   If branches -> do
     branches' <- forM (NonEmpty.toList branches) $ \(cond, body) -> do
-      cond' <- mapM buildSymTableExpr cond
+      cond' <- mapM symbolCheckExpr cond
       withScope $ do
-        body' <- mapM buildSymTableStmt body
+        body' <- mapM symbolCheckStmt body
         pure (cond', body')
     retFix (If (NonEmpty.fromList branches'))
   While cond body -> do
     withScope $ do
-      cond' <- buildSymTableExpr cond
+      cond' <- symbolCheckExpr cond
       withScope $ do
-        body' <- mapM buildSymTableStmt body
+        body' <- mapM symbolCheckStmt body
         retFix (While cond' body')
   For (pre, cond, post) body -> do
     withScope $ do
-      pre' <- mapM buildSymTableExpr pre
-      cond' <- mapM buildSymTableExpr cond
-      post' <- mapM buildSymTableExpr post
+      pre' <- mapM symbolCheckExpr pre
+      cond' <- mapM symbolCheckExpr cond
+      post' <- mapM symbolCheckExpr post
       withScope $ do
-        body' <- mapM buildSymTableStmt body
+        body' <- mapM symbolCheckStmt body
         retFix (For (pre', cond', post') body')
   Expr e -> do
-    e' <- buildSymTableExpr e
+    e' <- symbolCheckExpr e
     retFix (Expr e')
   Return e -> do
-    e' <- buildSymTableExpr e
+    e' <- symbolCheckExpr e
     retFix (Return e')
   where retFix x = do
           ft <- gets funSymTable
           vt <- gets varSymTable
           pure (Fix (Ann (pos, ft, vt) x))
 
-buildSymTableExpr :: (MonadState BuildSymTableState m, MonadError Error m)
+symbolCheckExpr :: (MonadState SymbolCheckState m, MonadError Error m)
                   => SrcAnnExpr -> m SymAnnExpr
-buildSymTableExpr (Fix (Ann pos expr)) = case expr of
+symbolCheckExpr (Fix (Ann pos expr)) = case expr of
   FunctionCall s args -> do
     defined <- isFunctionDefined s
     unless defined $
       throwError (UndefinedFunctionReference pos s)
-    args' <- mapM buildSymTableExpr args
+    args' <- mapM symbolCheckExpr args
     retFix (FunctionCall s args')
   VariableReference s -> do
     defined <- isVariableDefined s
@@ -174,7 +174,7 @@ buildSymTableExpr (Fix (Ann pos expr)) = case expr of
       throwError (UndefinedVariableReference pos s)
     retFix (VariableReference s)
   VariableDefinition t s e -> do
-    e' <- mapM buildSymTableExpr e
+    e' <- mapM symbolCheckExpr e
     defined <- isVariableDefinedTop s
     when defined $ throwError (RedefinedVariable pos s)
     defineVariable s (bareId t)
@@ -185,14 +185,14 @@ buildSymTableExpr (Fix (Ann pos expr)) = case expr of
   FloatLiteral a -> retFix (FloatLiteral a)
   StringLiteral s -> retFix (StringLiteral s)
   TypeCast t e -> do
-    e' <- buildSymTableExpr e
+    e' <- symbolCheckExpr e
     retFix (TypeCast t e')
   UnaryOperator op e -> do
-    e' <- buildSymTableExpr e
+    e' <- symbolCheckExpr e
     retFix (UnaryOperator op e')
   BinaryOperator op e1 e2 -> do
-    e1' <- buildSymTableExpr e1
-    e2' <- buildSymTableExpr e2
+    e1' <- symbolCheckExpr e1
+    e2' <- symbolCheckExpr e2
     retFix (BinaryOperator op e1' e2')
   where retFix x = do
           ft <- gets funSymTable

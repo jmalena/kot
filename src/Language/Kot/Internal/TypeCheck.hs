@@ -1,13 +1,13 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Language.Kot.Internal.Typecheck
+module Language.Kot.Internal.TypeCheck
   ( TypAnn
   , TypAnnFix
   , TypAnnDecl
   , TypAnnStmt
   , TypAnnExpr
   , typeAnnF
-  , typecheck
+  , typeCheck
   ) where
 
 import Control.Applicative
@@ -23,7 +23,7 @@ import           Language.Kot.Internal.AST
 import           Language.Kot.Internal.Annotation
 import           Language.Kot.Internal.Error
 import           Language.Kot.Internal.Parser
-import           Language.Kot.Internal.SymbolTable
+import           Language.Kot.Internal.SymbolCheck
 import qualified Language.Kot.Internal.Util.SymbolTable as SymTable
 import           Language.Kot.Internal.Util.Type
 
@@ -49,80 +49,80 @@ typeAnnF (Fix (Ann (_, _, _, t) _)) = t
 --------------------------------------------------------------------------------
 -- Monad
 
-typecheck :: (MonadError Error m) => [SymAnnDecl] -> m [TypAnnDecl]
-typecheck prog = typecheckProg prog
+typeCheck :: (MonadError Error m) => [SymAnnDecl] -> m [TypAnnDecl]
+typeCheck prog = typeCheckProg prog
 
 assertType :: (MonadError Error m) => SrcSpan -> TypePredicate -> Type -> m ()
 assertType span p t = unless success $ throwError (UnexpectedType span expected t)
   where (expected, success) = p t
 
 --------------------------------------------------------------------------------
--- Typecheck
+-- Type check
 
-typecheckProg :: (MonadError Error m) => [SymAnnDecl] -> m [TypAnnDecl]
-typecheckProg = mapM typecheckDecl
+typeCheckProg :: (MonadError Error m) => [SymAnnDecl] -> m [TypAnnDecl]
+typeCheckProg = mapM typeCheckDecl
 
-typecheckDecl :: (MonadError Error m) => SymAnnDecl -> m TypAnnDecl
-typecheckDecl (Ann ann@(pos, _, _) (Identity decl)) = case decl of
+typeCheckDecl :: (MonadError Error m) => SymAnnDecl -> m TypAnnDecl
+typeCheckDecl (Ann ann@(pos, _, _) (Identity decl)) = case decl of
   FunctionDeclaration s params t body -> do
     let rt = bareId t
-    (rt', body') <- typecheckBlock rt body
+    (rt', body') <- typeCheckBlock rt body
     unless (rt `hasType` void || isJust rt') $ throwError (MissingReturn pos)
     ret (FunctionDeclaration s params t body')
   FunctionExtern s params t ->
     ret (FunctionExtern s params t)
   where ret x = pure (Ann ann (Identity x))
 
-typecheckBlock :: (MonadError Error m) => Type -> [SymAnnStmt] -> m (Maybe Type, [TypAnnStmt])
-typecheckBlock rt body = do
-  (rts', body') <- unzip <$> mapM (typecheckStmt rt) body
+typeCheckBlock :: (MonadError Error m) => Type -> [SymAnnStmt] -> m (Maybe Type, [TypAnnStmt])
+typeCheckBlock rt body = do
+  (rts', body') <- unzip <$> mapM (typeCheckStmt rt) body
   let rt' = asum rts'
   pure (rt', body')
 
-typecheckStmt :: (MonadError Error m) => Type -> SymAnnStmt -> m (Maybe Type, TypAnnStmt)
-typecheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
+typeCheckStmt :: (MonadError Error m) => Type -> SymAnnStmt -> m (Maybe Type, TypAnnStmt)
+typeCheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
   If branches -> do
     branches' <- forM (NonEmpty.toList branches) $ \(cond, body) -> do
       cond' <- forM cond $ \cond -> do
-        cond'@(Fix (Ann (span, _, _, t) _)) <- typecheckExpr cond
+        cond'@(Fix (Ann (span, _, _, t) _)) <- typeCheckExpr cond
         assertType span bool t
         pure cond'
-      (_, body') <- typecheckBlock rt body
+      (_, body') <- typeCheckBlock rt body
       pure (cond', body')
     retFix Nothing (If (NonEmpty.fromList branches'))
   While cond body -> do
-    cond'@(Fix (Ann (span, _, _, t) _)) <- typecheckExpr cond
+    cond'@(Fix (Ann (span, _, _, t) _)) <- typeCheckExpr cond
     assertType span bool t
-    (_, body') <- typecheckBlock rt body
+    (_, body') <- typeCheckBlock rt body
     retFix Nothing (While cond' body')
   For (pre, cond, post) body -> do
-    pre' <- mapM typecheckExpr pre
+    pre' <- mapM typeCheckExpr pre
     cond' <- forM cond $ \cond -> do
-        cond'@(Fix (Ann (span, _, _, t) _)) <- typecheckExpr cond
+        cond'@(Fix (Ann (span, _, _, t) _)) <- typeCheckExpr cond
         assertType span bool t
         pure cond'
-    post' <- mapM typecheckExpr post
-    (_, body') <- typecheckBlock rt body
+    post' <- mapM typeCheckExpr post
+    (_, body') <- typeCheckBlock rt body
     retFix Nothing (For (pre', cond', post') body')
   Expr e -> do
-    e' <- typecheckExpr e
+    e' <- typeCheckExpr e
     retFix Nothing (Expr e')
   Return e -> do
-    e'@(Fix (Ann (span, _, _, _) _)) <- typecheckExprWithHint rt e
+    e'@(Fix (Ann (span, _, _, _) _)) <- typeCheckExprWithHint rt e
     let t = typeAnnF e'
     assertType span (castable rt) t
     retFix (Just t) (Return e')
   where retFix rt x = pure (rt, Fix (Ann ann x))
 
-typecheckExprGeneral :: (MonadError Error m) => Maybe Type -> SymAnnExpr -> m TypAnnExpr
-typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
+typeCheckExprGeneral :: (MonadError Error m) => Maybe Type -> SymAnnExpr -> m TypAnnExpr
+typeCheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
   FunctionCall s args -> do
     let (t, pts) = SymTable.lookup' s ft
     let (arity, arity') = (length pts, length args)
     when (arity /= arity') $
       throwError (FunctionCallBadArity pos s arity arity')
     args' <- forM (zip args pts) $ \(arg, at) -> do
-      arg'@(Fix (Ann (span, _, _, at') _)) <- typecheckExprWithHint at arg
+      arg'@(Fix (Ann (span, _, _, at') _)) <- typeCheckExprWithHint at arg
       assertType span (castable at) at'
       pure arg'
     retFix t (FunctionCall s args')
@@ -130,7 +130,7 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
   VariableDefinition t s e -> do
     let t' = bareId t
     e' <- forM e $ \e -> do
-      e'@(Fix (Ann (span, _, _, et) _)) <- typecheckExprWithHint t' e
+      e'@(Fix (Ann (span, _, _, et) _)) <- typeCheckExprWithHint t' e
       assertType span (castable t') et
       pure e'
     retFix t' (VariableDefinition t s e')
@@ -149,11 +149,11 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
   StringLiteral s -> retFix (Ptr Int8) (StringLiteral s)
   TypeCast t e -> do
     let t' = bareId t
-    e'@(Fix (Ann (span, _, _, et) _)) <- typecheckExprWithHint t' e
+    e'@(Fix (Ann (span, _, _, et) _)) <- typeCheckExprWithHint t' e
     assertType span (castable t') et
     retFix t' (TypeCast t e')
   UnaryOperator op e -> do
-    e'@(Fix (Ann (spanOp, _, _, _) _)) <- typecheckExprGeneral hint e
+    e'@(Fix (Ann (spanOp, _, _, _) _)) <- typeCheckExprGeneral hint e
     let pt = typeAnnF e'
     t <- case bareId op of
       Not -> do
@@ -173,8 +173,8 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
         pure pt'
     retFix t (UnaryOperator op e')
   BinaryOperator op e1 e2 -> do
-    e1'@(Fix (Ann (spanOp1, _, _, t1) _)) <- typecheckExprGeneral hint e1
-    e2'@(Fix (Ann (spanOp2, _, _, t2) _)) <- typecheckExprGeneral hint e2
+    e1'@(Fix (Ann (spanOp1, _, _, t1) _)) <- typeCheckExprGeneral hint e1
+    e2'@(Fix (Ann (spanOp2, _, _, t2) _)) <- typeCheckExprGeneral hint e2
     case bareId op of
       x | x `elem` [Add, Subtract] -> do
         assertType spanOp1 (pointerArithmeticOp t1) t2
@@ -212,11 +212,11 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
         retFix t1 (BinaryOperator op e1' e2')
   where retFix t x = pure (Fix (Ann (pos, ft, vt, t) x))
 
-typecheckExpr :: (MonadError Error m) => SymAnnExpr -> m TypAnnExpr
-typecheckExpr = typecheckExprGeneral Nothing
+typeCheckExpr :: (MonadError Error m) => SymAnnExpr -> m TypAnnExpr
+typeCheckExpr = typeCheckExprGeneral Nothing
 
-typecheckExprWithHint :: (MonadError Error m) => Type -> SymAnnExpr -> m TypAnnExpr
-typecheckExprWithHint t = typecheckExprGeneral (Just t)
+typeCheckExprWithHint :: (MonadError Error m) => Type -> SymAnnExpr -> m TypAnnExpr
+typeCheckExprWithHint t = typeCheckExprGeneral (Just t)
 
 --------------------------------------------------------------------------------
 -- Helpers
