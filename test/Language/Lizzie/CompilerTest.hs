@@ -202,9 +202,8 @@ main(): i32 {
 }
   |]
 
--- TODO: fix this test
-xunit_var3 :: IO ()
-xunit_var3 =
+unit_var3 :: IO ()
+unit_var3 =
   (@?= 4) =<< interpretWithExitCode [s|
 main(): i32 {
   i32 a;

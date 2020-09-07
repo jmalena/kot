@@ -98,15 +98,6 @@ getFunAddr k = SymTable.lookup' k <$> gets funAddrs
 getVarAddr :: (MonadState CGModuleState m) => AST.Symbol -> m (Operand, AST.Type)
 getVarAddr k = SymTable.lookup' k <$> gets varAddrs
 
-getLValueAddr :: (MonadState CGModuleState m, MonadIRBuilder m) => TypAnnExpr -> m (Operand, AST.Type)
-getLValueAddr (Fix (Ann _ expr)) = case expr of
-  AST.VariableReference s -> getVarAddr s
-  AST.UnaryOperator _ e'  -> do
-    (addr, t) <- getLValueAddr e'
-    addr' <- load addr (sizeOf t)
-    let AST.Ptr t' = t
-    pure (addr', t')
-
 withReturn :: (MonadState CGModuleState m) => AST.Type -> m a -> m a
 withReturn t m = do
   modify $ \s -> s { returnType = Just t }
@@ -214,6 +205,18 @@ codegenStmt (Fix (Ann _ stmt)) = case stmt of
     e' <- codegenExprWithCast t e
     ret e'
 
+codegenLValue :: TypAnnExpr -> CGBlock (Operand, AST.Type)
+codegenLValue (Fix (Ann (_, ft, _, t) expr)) = case expr of
+  AST.VariableReference s ->
+    getVarAddr s
+  AST.UnaryOperator op e ->
+    case bareId op of
+      AST.Dereference -> do
+        (addr, t) <- codegenLValue e
+        addr' <- load addr (sizeOf t)
+        let AST.Ptr t' = t
+        pure (addr', t')
+
 codegenExpr :: TypAnnExpr -> CGBlock Operand
 codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.FunctionCall s args -> do
@@ -251,9 +254,9 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
       AST.Not ->
         codegenExpr e >>= xor (constBool True)
       AST.Address ->
-        fst <$> getLValueAddr e
+        fst <$> codegenLValue e
       AST.Dereference -> do
-        (addr, t) <- getLValueAddr e
+        (addr, t) <- codegenLValue e
         addr' <- load addr (sizeOf t)
         let AST.Ptr t' = t
         load addr' (sizeOf t')
@@ -418,8 +421,8 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
         e2' <- codegenExpr e2
         I.or e1' e2'
       AST.Assign -> do
-        e2' <- codegenExprWithCast t1 e2
-        (addr, t) <- getLValueAddr e1
+        (addr, t) <- codegenLValue e1
+        e2' <- codegenExprWithCast t e2
         store addr (sizeOf t) e2'
         pure e2'
 

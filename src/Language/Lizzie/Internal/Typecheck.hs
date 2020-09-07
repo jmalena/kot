@@ -209,8 +209,7 @@ typecheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
       Assign -> do
         unless (isLValueF e1') $ throwError (ExpectLValue spanOp1)
         assertType spanOp2 (castable t1) t2
-        let t = joinNumberTypes t1 t2
-        retFix (fromJust t) (BinaryOperator op e1' e2')
+        retFix t1 (BinaryOperator op e1' e2')
   where retFix t x = pure (Fix (Ann (pos, ft, vt, t) x))
 
 typecheckExpr :: (MonadError Error m) => SymAnnExpr -> m TypAnnExpr
