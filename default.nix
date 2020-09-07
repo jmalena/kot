@@ -1,6 +1,7 @@
 { mkDerivation, base, bytestring, containers, llvm-hs, llvm-hs-pure
-, megaparsec, mtl, parser-combinators, stdenv, tasty
-, tasty-discover, tasty-hspec, utf8-string
+, megaparsec, mtl, optparse-applicative, parser-combinators
+, process, stdenv, string-qq, tasty, tasty-discover, tasty-hunit
+, utf8-string
 }:
 mkDerivation {
   pname = "lizzie";
@@ -12,8 +13,13 @@ mkDerivation {
     base bytestring containers llvm-hs llvm-hs-pure megaparsec mtl
     parser-combinators utf8-string
   ];
-  executableHaskellDepends = [ base ];
-  testHaskellDepends = [ base tasty tasty-discover tasty-hspec ];
+  executableHaskellDepends = [
+    base bytestring optparse-applicative utf8-string
+  ];
+  testHaskellDepends = [
+    base bytestring process string-qq tasty tasty-discover tasty-hunit
+    utf8-string
+  ];
   testToolDepends = [ tasty-discover ];
   license = stdenv.lib.licenses.bsd3;
 }

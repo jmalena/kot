@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Language.Lizzie.Internal.SymbolTable
+module Language.Kot.Internal.SymbolTable
   ( SymAnn
   , SymAnnFix
   , SymAnnDecl
@@ -19,12 +19,12 @@ import Control.Monad.State
 import           Data.Functor.Identity
 import qualified Data.List.NonEmpty    as NonEmpty
 
-import           Language.Lizzie.Monad
-import           Language.Lizzie.Internal.AST
-import           Language.Lizzie.Internal.Annotation
-import           Language.Lizzie.Internal.Error
-import           Language.Lizzie.Internal.Parser
-import qualified Language.Lizzie.Internal.Util.SymbolTable as SymTable
+import           Language.Kot.Monad
+import           Language.Kot.Internal.AST
+import           Language.Kot.Internal.Annotation
+import           Language.Kot.Internal.Error
+import           Language.Kot.Internal.Parser
+import qualified Language.Kot.Internal.Util.SymbolTable as SymTable
 
 --------------------------------------------------------------------------------
 -- Annotation

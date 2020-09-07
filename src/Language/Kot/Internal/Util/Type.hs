@@ -1,4 +1,4 @@
-module Language.Lizzie.Internal.Util.Type
+module Language.Kot.Internal.Util.Type
   ( TypePredicate
   , hasType
   , ofType
@@ -16,7 +16,7 @@ module Language.Lizzie.Internal.Util.Type
 
 import qualified Data.Set as Set
 
-import Language.Lizzie.Internal.AST
+import Language.Kot.Internal.AST
 
 type TypePredicate = Type -> (Set.Set Type, Bool)
 

@@ -1,4 +1,4 @@
-module Language.Lizzie.Internal.AST
+module Language.Kot.Internal.AST
   ( Symbol
   , Decl(..)
   , StmtF(..)

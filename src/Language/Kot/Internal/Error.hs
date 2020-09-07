@@ -1,4 +1,4 @@
-module Language.Lizzie.Internal.Error
+module Language.Kot.Internal.Error
   ( Error(..)
   , SrcSpan(..)
   , errorPretty
@@ -11,7 +11,7 @@ import           Data.List
 import qualified Data.Set              as Set
 import           Data.Void
 
-import Language.Lizzie.Internal.AST
+import Language.Kot.Internal.AST
 
 import Text.Megaparsec
 

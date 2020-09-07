@@ -2,14 +2,14 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE QuasiQuotes #-}
 
-module Language.Lizzie.CompilerTest where
+module Language.Kot.CompilerTest where
 
 import qualified Data.ByteString      as B
 import qualified Data.ByteString.UTF8 as BU
 import           Data.String.QQ
 
-import Language.Lizzie.Compiler
-import Language.Lizzie.Monad
+import Language.Kot.Compiler
+import Language.Kot.Monad
 
 import System.Exit
 import System.Process
@@ -395,6 +395,15 @@ main(): i32 {
   }
 
   return a;
+}
+  |]
+
+unit_import1 :: IO ()
+unit_import1 =
+  checkCode [s|
+import std;
+
+main(): void {
 }
   |]
 

@@ -9,9 +9,9 @@ import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
 import qualified Data.ByteString.UTF8  as BU
 
-import Language.Lizzie.Compiler
-import Language.Lizzie.Monad
-import Language.Lizzie.Internal.AST
+import Language.Kot.Compiler
+import Language.Kot.Monad
+import Language.Kot.Internal.AST
 
 import Options.Applicative
 

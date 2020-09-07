@@ -1,4 +1,4 @@
-# Revision history for lizzie
+# Revision history for kot
 
 ## 0.1.0.0 -- YYYY-mm-dd
 

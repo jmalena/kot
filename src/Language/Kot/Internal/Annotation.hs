@@ -1,4 +1,4 @@
-module Language.Lizzie.Internal.Annotation
+module Language.Kot.Internal.Annotation
   ( Fix(..)
   , Ann(..)
   , AnnFix

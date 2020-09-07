@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Language.Lizzie.Internal.Typecheck
+module Language.Kot.Internal.Typecheck
   ( TypAnn
   , TypAnnFix
   , TypAnnDecl
@@ -19,13 +19,13 @@ import           Data.Foldable
 import qualified Data.List.NonEmpty    as NonEmpty
 import           Data.Maybe
 
-import           Language.Lizzie.Internal.AST
-import           Language.Lizzie.Internal.Annotation
-import           Language.Lizzie.Internal.Error
-import           Language.Lizzie.Internal.Parser
-import           Language.Lizzie.Internal.SymbolTable
-import qualified Language.Lizzie.Internal.Util.SymbolTable as SymTable
-import           Language.Lizzie.Internal.Util.Type
+import           Language.Kot.Internal.AST
+import           Language.Kot.Internal.Annotation
+import           Language.Kot.Internal.Error
+import           Language.Kot.Internal.Parser
+import           Language.Kot.Internal.SymbolTable
+import qualified Language.Kot.Internal.Util.SymbolTable as SymTable
+import           Language.Kot.Internal.Util.Type
 
 import Debug.Trace
 

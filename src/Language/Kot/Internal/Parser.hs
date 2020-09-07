@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
-module Language.Lizzie.Internal.Parser
+module Language.Kot.Internal.Parser
   ( SrcAnn
   , SrcAnnFix
   , SrcAnnDecl
@@ -30,10 +30,10 @@ import           Data.Maybe
 import           Data.Void
 import           Data.Word
 
-import Language.Lizzie.Monad
-import Language.Lizzie.Internal.Annotation
-import Language.Lizzie.Internal.AST
-import Language.Lizzie.Internal.Error
+import Language.Kot.Monad
+import Language.Kot.Internal.Annotation
+import Language.Kot.Internal.AST
+import Language.Kot.Internal.Error
 
 import           Text.Megaparsec            hiding (parse)
 import           Text.Megaparsec.Byte
@@ -134,7 +134,10 @@ stringLiteral = undefined
 -- Parser
 
 program :: Parser [SrcAnnDecl]
-program = spaceConsumer *> many declaration <* eof
+program = spaceConsumer *> many import_ *> many declaration <* eof
+
+import_ :: Parser B.Short.ShortByteString
+import_ = B.Short.pack <$> (symbol "import" *> many (alphaNumChar <|> char 46) <* symbol ";")
 
 declaration :: Parser SrcAnnDecl
 declaration = functionExtern

@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecursiveDo #-}
 
-module Language.Lizzie.Internal.Codegen
+module Language.Kot.Internal.Codegen
   ( codegen
   ) where
 
@@ -17,12 +17,12 @@ import qualified Data.List.NonEmpty          as NonEmpty
 import           Data.Maybe
 import           Data.Word
 
-import           Language.Lizzie.Monad
-import           Language.Lizzie.Internal.Annotation
-import qualified Language.Lizzie.Internal.AST                 as AST
-import           Language.Lizzie.Internal.Typecheck
-import qualified Language.Lizzie.Internal.Util.SymbolTable    as SymTable
-import qualified Language.Lizzie.Internal.Util.Type as T
+import           Language.Kot.Monad
+import           Language.Kot.Internal.Annotation
+import qualified Language.Kot.Internal.AST                 as AST
+import           Language.Kot.Internal.Typecheck
+import qualified Language.Kot.Internal.Util.SymbolTable    as SymTable
+import qualified Language.Kot.Internal.Util.Type as T
 
 import           LLVM.AST hiding (function)
 import qualified LLVM.AST.Constant                 as C

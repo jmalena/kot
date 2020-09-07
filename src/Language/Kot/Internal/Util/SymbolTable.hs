@@ -1,4 +1,4 @@
-module Language.Lizzie.Internal.Util.SymbolTable
+module Language.Kot.Internal.Util.SymbolTable
   ( SymbolTable
   , empty
   , fromList
