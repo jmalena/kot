@@ -233,8 +233,16 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
     let t' = bareId t
     let align = sizeOf t'
     addr <- alloca (toLLVMType (bareId t)) Nothing align
-    when (isJust e) $ codegenExprWithCast (bareId t) (fromJust e) >>= store addr align
-    -- TODO: init default value of expression
+    case e of
+      Just e' ->
+        codegenExprWithCast (bareId t) e' >>= store addr align
+      Nothing -> case t' of
+        t | t `T.hasType` T.bool ->
+          store addr (sizeOf t) (constBool False)
+        t | t `T.hasType` T.number ->
+          store addr (sizeOf t) (constNum t 0)
+        t | t `T.hasType` T.pointer ->
+          pure () -- NOTE: no default value for pointer
     setVarAddr s addr t'
     pure addr
   AST.BoolLiteral False -> pure (constBool False)

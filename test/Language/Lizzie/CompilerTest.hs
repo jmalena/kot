@@ -185,9 +185,9 @@ main(): i32 {
 
 unit_var1 :: IO ()
 unit_var1 =
-  (@?= 1) =<< interpretWithExitCode [s|
+  (@?= 0) =<< interpretWithExitCode [s|
 main(): i32 {
-  i32 a = 1;
+  i32 a;
   return a;
 }
   |]
@@ -196,14 +196,23 @@ unit_var2 :: IO ()
 unit_var2 =
   (@?= 1) =<< interpretWithExitCode [s|
 main(): i32 {
-  i32 a;
-  a = 1;
+  i32 a = 1;
   return a;
 }
   |]
 
 unit_var3 :: IO ()
 unit_var3 =
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  i32 a;
+  a = 1;
+  return a;
+}
+  |]
+
+unit_var4 :: IO ()
+unit_var4 =
   (@?= 4) =<< interpretWithExitCode [s|
 main(): i32 {
   i32 a;
