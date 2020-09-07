@@ -237,8 +237,8 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.BoolLiteral False -> pure (constBool False)
   AST.BoolLiteral True -> pure (constBool True)
   AST.CharLiteral a -> pure $ int8 (fromIntegral a)
-  AST.IntLiteral a -> pure $ constInt t (fromIntegral a)
-  AST.FloatLiteral a -> pure $ constFloat t a
+  AST.IntLiteral a -> pure $ constNum t (fromIntegral a)
+  AST.FloatLiteral a -> pure $ constNum t a
   AST.StringLiteral s -> undefined
   AST.TypeCast t e -> codegenExprWithCast (bareId t) e
   AST.UnaryOperator op e ->
@@ -246,8 +246,8 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
       AST.Negate -> do
         e' <- codegenExpr e
         case typeAnnF e of
-          t | t `T.hasType` T.int   -> sub (constInt t 0) e'
-          t | t `T.hasType` T.float -> fsub (constFloat t 0) e'
+          t | t `T.hasType` T.int   -> sub (constNum t 0) e'
+          t | t `T.hasType` T.float -> fsub (constNum t 0) e'
       AST.Not ->
         codegenExpr e >>= xor (constBool True)
       AST.Address ->
@@ -285,16 +285,16 @@ codegenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.pointer -> do
           e1' <- codegenExpr e1
           e2' <- codegenExpr e2
-          e2'' <- sub (constInt AST.Int64 0) e2'
+          e2'' <- sub (constNum AST.Int64 0) e2'
           gep e1' [e2'']
         (t1, t2) | t1 `T.hasType` T.pointer && t2 `T.hasType` T.int -> do
           e1' <- codegenExpr e1
           e2' <- codegenExprWithCast AST.Int64 e2
-          e2'' <- sub (constInt AST.Int64 0) e2'
+          e2'' <- sub (constNum AST.Int64 0) e2'
           gep e1' [e2'']
         (t1, t2) | t1 `T.hasType` T.int && t2 `T.hasType` T.pointer -> do
           e1' <- codegenExprWithCast AST.Int64 e1
-          e1'' <- sub (constInt AST.Int64 0) e1'
+          e1'' <- sub (constNum AST.Int64 0) e1'
           e2' <- codegenExpr e2
           gep e2' [e1'']
         (t1, t2) | t1 `T.hasType` T.number && t2 `T.hasType` T.number -> do
@@ -459,15 +459,13 @@ constBool :: Bool -> Operand
 constBool False = ConstantOperand (C.Int 1 0)
 constBool True  = ConstantOperand (C.Int 1 1)
 
-constInt :: AST.Type -> Integer -> Operand
-constInt AST.Int8    = ConstantOperand . C.Int 8
-constInt AST.Int16   = ConstantOperand . C.Int 16
-constInt AST.Int32   = ConstantOperand . C.Int 32
-constInt AST.Int64   = ConstantOperand . C.Int 64
-
-constFloat :: AST.Type -> Double -> Operand
-constFloat AST.Float32 = ConstantOperand . C.Float . Single . realToFrac
-constFloat AST.Float64 = ConstantOperand . C.Float . Double . realToFrac
+constNum :: AST.Type -> Double -> Operand
+constNum AST.Int8    = ConstantOperand . C.Int 8 . floor
+constNum AST.Int16   = ConstantOperand . C.Int 16 . floor
+constNum AST.Int32   = ConstantOperand . C.Int 32 . floor
+constNum AST.Int64   = ConstantOperand . C.Int 64 . floor
+constNum AST.Float32 = ConstantOperand . C.Float . Single . realToFrac
+constNum AST.Float64 = ConstantOperand . C.Float . Double . realToFrac
 
 toLLVMType :: AST.Type -> LT.Type
 toLLVMType AST.Void    = LT.void

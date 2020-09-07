@@ -250,15 +250,33 @@ unit_cast1 :: IO ()
 unit_cast1 =
   (@?= 1) =<< interpretWithExitCode [s|
 main(): i32 {
-  return (i32)1.2;
+  return (i32)1;
 }
   |]
 
 unit_cast2 :: IO ()
 unit_cast2 =
-  checkCode [s|
-main(): void {
-  f32 a = (i32)1;
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  f32 a = (f32)1.0;
+  return a;
+}
+  |]
+
+unit_cast3 :: IO ()
+unit_cast3 =
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  return (i32)1.2;
+}
+  |]
+
+unit_cast4 :: IO ()
+unit_cast4 =
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  f32 a = (f32)1;
+  return a;
 }
   |]
 
