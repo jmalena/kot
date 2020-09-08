@@ -9,11 +9,12 @@ module Language.Kot.Internal.CodeGen
 import Control.Monad.Reader
 import Control.Monad.State
 
-import qualified Data.ByteString             as B
-import qualified Data.ByteString.Short       as B.Short
+import qualified Data.ByteString       as B
+import qualified Data.ByteString.Short as B.Short
+import qualified Data.ByteString.Char8 as C
 import           Data.Foldable hiding (null)
 import           Data.Functor.Identity
-import qualified Data.List.NonEmpty          as NonEmpty
+import qualified Data.List.NonEmpty    as NonEmpty
 import           Data.Maybe
 import           Data.Word
 
@@ -59,7 +60,7 @@ makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Nothing
 
 runCGModule :: (MonadReader CompileEnv m) => [TypAnnDecl] -> m LLVM.AST.Module
 runCGModule ast = do
-  filename <- reader sourceFilename
+  filename <- B.Short.toShort . C.pack <$> reader sourceFilename
   pure $ evalState (buildModuleT filename (codeGenProgram ast)) makeCGModuleState
 
 codeGen :: (MonadReader CompileEnv m, MonadIO m) => [TypAnnDecl] -> m (B.ByteString, B.ByteString)

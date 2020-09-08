@@ -22,7 +22,6 @@ import Control.Monad.Except
 
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
-import qualified Data.ByteString.Char8 as C
 import           Data.Functor.Identity
 import           Data.Int
 import qualified Data.List.NonEmpty    as NonEmpty
@@ -47,8 +46,7 @@ type Parser = Parsec Void B.ByteString
 parse :: (MonadReader CompileEnv m, MonadError Error m) => B.ByteString -> m [SrcAnnDecl]
 parse input = do
   filename <- reader sourceFilename
-  let filename' = (C.unpack . B.Short.fromShort) filename
-  case runParser program filename' input of
+  case runParser program filename input of
     Left bundle -> throwError $ ParseErrors bundle
     Right ast   -> pure ast
 

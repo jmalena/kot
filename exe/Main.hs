@@ -4,9 +4,7 @@ module Main where
 
 import Control.Exception
 
-import qualified Data.ByteString       as B
-import qualified Data.ByteString.Short as B.Short
-import qualified Data.ByteString.Char8 as C
+import qualified Data.ByteString as B
 
 import Language.Kot
 import Language.Kot.Monad
@@ -16,14 +14,14 @@ import Options.Applicative
 import System.Exit
 
 data Args = Args
-  { inputFilename :: B.ByteString }
+  { inputFilename :: String
+  }
 
 main :: IO ()
 main = do
   Args filename <- execParser opts
-  let filename' = B.Short.toShort filename
-  let env = makeCompileEnv filename'
-  input <- B.readFile (C.unpack filename) `onException` do
+  let env = makeCompileEnv filename
+  input <- B.readFile filename `onException` do
     putStrLn "Error: unable to process input"
     exitFailure
   compile env input >>= \case
