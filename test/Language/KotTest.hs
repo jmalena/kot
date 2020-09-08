@@ -4,8 +4,8 @@
 
 module Language.KotTest where
 
-import qualified Data.ByteString      as B
-import qualified Data.ByteString.UTF8 as BU
+import qualified Data.ByteString       as B
+import qualified Data.ByteString.Char8 as C
 import           Data.String.QQ
 
 import Language.Kot
@@ -474,7 +474,7 @@ interpretWithExitCode input =
   compile compileEnv input >>= \case
     Left e -> error (errorPretty input e)
     Right (ll, _) -> do
-      (ec, _, _) <- readProcessWithExitCode "lli" [] (BU.toString ll)
+      (ec, _, _) <- readProcessWithExitCode "lli" [] (C.unpack ll)
       case ec of
         ExitSuccess   -> pure 0
         ExitFailure a -> pure a

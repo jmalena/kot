@@ -6,7 +6,7 @@ module Language.Kot.Internal.Error
 
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Short as B.Short
-import qualified Data.ByteString.UTF8  as BU
+import qualified Data.ByteString.Char8 as C
 import           Data.List
 import qualified Data.Set              as Set
 import           Data.Void
@@ -87,7 +87,7 @@ errorCountPretty n = show n <> " errors generated."
 
 inputViewSpan :: B.ByteString -> SrcSpan -> String
 inputViewSpan input (SrcSpan (SourcePos _ l c) (SourcePos _ l' c')) = emptyFill <> "\n" <> lineFill <> codeChunk <> "\n" <> emptyFill <> marker
-  where codeChunk = (BU.toString . (!! (unPos l - 1)) . BU.lines) input
+  where codeChunk = (C.unpack . (!! (unPos l - 1)) . C.lines) input
         marker = replicate (unPos c - 1) ' ' <> replicate (unPos c' - unPos c) '^'
         lline = length (show (unPos l))
         emptyFill = replicate (lline + 2) ' ' <> "| "
