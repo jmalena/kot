@@ -18,6 +18,7 @@ import           Data.Functor.Identity
 import           Data.Foldable
 import qualified Data.List.NonEmpty    as NonEmpty
 import           Data.Maybe
+import qualified Data.Set as Set
 
 import           Language.Kot.Internal.AST
 import           Language.Kot.Internal.Annotation
@@ -114,6 +115,7 @@ typeCheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
     retFix (Just t) (Return e')
   where retFix rt x = pure (rt, Fix (Ann ann x))
 
+-- | The hint comes from variable definition. E.g. for "i32 a = [e]", the hint for "[e]" will be "Just Int32".
 typeCheckExprGeneral :: (MonadError Error m) => Maybe Type -> SymAnnExpr -> m TypAnnExpr
 typeCheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
   FunctionCall s args -> do
@@ -134,9 +136,15 @@ typeCheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
       assertType span (castable t') et
       pure e'
     retFix t' (VariableDefinition t s e')
+  ArrayVariableReference s loc -> do
+    let t = SymTable.lookup' s vt
+    case peelPointer t (length loc) of
+      Nothing -> do
+        let ts = Set.singleton . fromJust $ flip makePointer (length loc) <$> pointerBase t
+        throwError (UnexpectedType pos ts t)
+      Just t' -> retFix t' (ArrayVariableReference s loc)
   ArrayVariableDefinition t s size -> do
-    let t' = Ptr (bareId t)
-    retFix t' (ArrayVariableDefinition t s size)
+    retFix (SymTable.lookup' s vt) (ArrayVariableDefinition t s size)
   BoolLiteral a -> retFix Bool (BoolLiteral a)
   CharLiteral a -> retFix Int8 (CharLiteral a)
   IntLiteral a -> do
@@ -226,8 +234,10 @@ typeCheckExprWithHint t = typeCheckExprGeneral (Just t)
 
 -- isLValueF :: Fix (Ann x (ExprF  b c)) -> Bool
 isLValueF (Fix (Ann _ expr)) = case expr of
-  VariableReference _                                -> True
-  UnaryOperator (Ann _ (Identity Dereference)) e'    -> isLValueF e'
+  VariableReference _                             -> True
+  ArrayVariableReference _ _                      -> True
+  UnaryOperator (Ann _ (Identity Dereference)) e' -> isLValueF e'
+  _                                               -> False
   -- BinaryOperator (Ann _ (Identity Add))      e1' e2' -> isLValueF e1' || isLValueF e2'
   -- BinaryOperator (Ann _ (Identity Subtract)) e1' e2' -> isLValueF e1' || isLValueF e2'
 

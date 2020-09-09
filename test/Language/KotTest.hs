@@ -258,8 +258,19 @@ unit_array1 :: IO ()
 unit_array1 =
   (@?= 1) =<< interpretWithExitCode [s|
 main(): i32 {
-  i32 a[2, 3];
-  return 1;
+  i32 a[1];
+  a[0] = 1;
+  return a[0];
+}
+  |]
+
+unit_array2 :: IO ()
+unit_array2 =
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  i32 a[1, 1];
+  a[0, 0] = 1;
+  return a[0, 0];
 }
   |]
 

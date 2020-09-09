@@ -24,6 +24,7 @@ data Error
   | UndefinedVariableReference SrcSpan Symbol
   | RedefinedFunction SrcSpan Symbol
   | RedefinedVariable SrcSpan Symbol
+  | ArrayAccessOutOfBounds SrcSpan
   | UndefinedMain
   | MissingReturn SrcSpan
   | FunctionCallBadArity SrcSpan Symbol Int Int
@@ -73,7 +74,7 @@ errorPretty input e = case e of
     messagePrettySpan ("expected type of " <> show msgExpected <> ", but " <> show actual <> " was given") input span <> errorCountPretty 1
     where msgExpected = (intercalate ", " . fmap show . Set.toList) expected
   ExpectLValue span ->
-    messagePrettySpan "expect l-value" input span <> errorCountPretty 1
+    messagePrettySpan "expected l-value" input span <> errorCountPretty 1
 
 messagePretty :: String -> String
 messagePretty msg = "error: " <> msg <> "\n\n"

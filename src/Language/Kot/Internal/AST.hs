@@ -33,9 +33,10 @@ data StmtF expr type_ f
 
 data ExprF unaryOp binaryOp type_ f
   = FunctionCall Symbol [f]
-  | VariableReference Symbol
   | VariableDefinition type_ Symbol (Maybe f)
+  | VariableReference Symbol
   | ArrayVariableDefinition type_ Symbol (NonEmpty.NonEmpty Word64)
+  | ArrayVariableReference Symbol (NonEmpty.NonEmpty Word64)
   | BoolLiteral Bool
   | CharLiteral Word8
   | IntLiteral Int64

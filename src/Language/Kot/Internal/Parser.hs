@@ -228,8 +228,10 @@ variableDefinition = withSrcAnnFix $
 
 arrayVariableDefinition :: Parser SrcAnnExpr
 arrayVariableDefinition = withSrcAnnFix $
-  ArrayVariableDefinition <$> type_ <*> identifier <*> size
-  where size = NonEmpty.fromList <$> (symbol "[" *> (decimalLiteral `sepBy` symbol ",") <* symbol "]")
+  ArrayVariableDefinition <$> type_ <*> identifier <*> arrayAccessor
+
+arrayAccessor :: Parser (NonEmpty.NonEmpty Word64)
+arrayAccessor = NonEmpty.fromList <$> (symbol "[" *> (decimalLiteral `sepBy` symbol ",") <* symbol "]")
 
 exprWithDefinition :: Parser SrcAnnExpr
 exprWithDefinition = try arrayVariableDefinition
@@ -243,6 +245,7 @@ term = try (withSrcAnnFix $ FloatLiteral <$> floatLiteral)
        -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
        <|> (withSrcAnnFix $ BoolLiteral <$> boolLiteral)
        <|> try functionCall
+       <|> try (withSrcAnnFix $ ArrayVariableReference <$> identifier <*> arrayAccessor)
        <|> (withSrcAnnFix $ VariableReference <$> identifier)
        <|> try (withSrcAnnFix $ TypeCast <$> parens type_ <*> expr)
        <|> parens expr

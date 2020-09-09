@@ -25,7 +25,7 @@ main = do
     putStrLn "Error: unable to process input"
     exitFailure
   compile env input >>= \case
-    Left e -> putStr (errorPretty input e)
+    Left e -> putStrLn (errorPretty input e)
     Right (ll, o) -> do
       B.writeFile "./a.ll" ll
       B.writeFile "./a.o" o

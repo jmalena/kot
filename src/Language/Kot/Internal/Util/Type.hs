@@ -12,6 +12,9 @@ module Language.Kot.Internal.Util.Type
   , castable
   , rankNumber
   , joinNumberTypes
+  , makePointer
+  , pointerBase
+  , peelPointer
   ) where
 
 import qualified Data.Set as Set
@@ -72,3 +75,19 @@ joinNumberTypes t1 t2 = case (rankNumber t1, rankNumber t2) of
   (Just r1, Just r2) | r1 > r2 -> Just t1
   (Just r1, Just r2)           -> Just t2
   _                            -> Nothing
+
+--------------------------------------------------------------------------------
+-- Pointer utils
+
+makePointer :: Type -> Int -> Type
+makePointer t 0 = t
+makePointer t n = Ptr (makePointer t (n - 1))
+
+pointerBase :: Type -> Maybe Type
+pointerBase (Ptr t) = Just t
+pointerBase       _ = Nothing
+
+peelPointer :: Type -> Int -> Maybe Type
+peelPointer t       0 = Just t
+peelPointer (Ptr t) n = peelPointer t (n - 1)
+peelPointer _       _ = Nothing

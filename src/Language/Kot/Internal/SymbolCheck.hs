@@ -25,6 +25,7 @@ import           Language.Kot.Internal.Annotation
 import           Language.Kot.Internal.Error
 import           Language.Kot.Internal.Parser
 import qualified Language.Kot.Internal.Util.SymbolTable as SymTable
+import           Language.Kot.Internal.Util.Type
 
 --------------------------------------------------------------------------------
 -- Annotation
@@ -179,10 +180,16 @@ symbolCheckExpr (Fix (Ann pos expr)) = case expr of
     when defined $ throwError (RedefinedVariable pos s)
     defineVariable s (bareId t)
     retFix (VariableDefinition t s e')
+  ArrayVariableReference s loc -> do
+    defined <- isVariableDefined s
+    unless defined $
+      throwError (UndefinedVariableReference pos s)
+    retFix (ArrayVariableReference s loc)
   ArrayVariableDefinition t s size -> do
+    let t' = makePointer (bareId t) (length size)
     defined <- isVariableDefinedTop s
     when defined $ throwError (RedefinedVariable pos s)
-    defineVariable s (Ptr (bareId t))
+    defineVariable s t'
     retFix (ArrayVariableDefinition t s size)
   BoolLiteral a -> retFix (BoolLiteral a)
   CharLiteral a -> retFix (CharLiteral a)
