@@ -40,8 +40,6 @@ import           LLVM.IRBuilder.Module
 import           LLVM.IRBuilder.Monad
 import           LLVM.IRBuilder.Instruction        as I
 
-import Debug.Trace
-
 --------------------------------------------------------------------------------
 -- Types
 
@@ -245,6 +243,12 @@ codeGenExpr (Fix (Ann (_, ft, _, t) expr)) = case expr of
         t | t `T.hasType` T.pointer ->
           pure () -- NOTE: no default value for pointer
     setVarAddr s addr t'
+    pure addr
+  AST.ArrayVariableDefinition t' s size -> do
+    let align = 16 -- why? why not?
+    let llvmType = foldr LT.ArrayType (toLLVMType (bareId t')) size
+    addr <- alloca llvmType Nothing align
+    setVarAddr s addr t
     pure addr
   AST.BoolLiteral False -> pure (constBool False)
   AST.BoolLiteral True -> pure (constBool True)

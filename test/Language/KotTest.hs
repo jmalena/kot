@@ -254,6 +254,15 @@ main(): void {
 }
   |]
 
+unit_array1 :: IO ()
+unit_array1 =
+  (@?= 1) =<< interpretWithExitCode [s|
+main(): i32 {
+  i32 a[2, 3];
+  return 1;
+}
+  |]
+
 unit_cast1 :: IO ()
 unit_cast1 =
   (@?= 1) =<< interpretWithExitCode [s|
@@ -395,15 +404,6 @@ main(): i32 {
   }
 
   return a;
-}
-  |]
-
-unit_import1 :: IO ()
-unit_import1 =
-  checkCode [s|
-import std;
-
-main(): void {
 }
   |]
 

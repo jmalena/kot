@@ -134,6 +134,9 @@ typeCheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
       assertType span (castable t') et
       pure e'
     retFix t' (VariableDefinition t s e')
+  ArrayVariableDefinition t s size -> do
+    let t' = Ptr (bareId t)
+    retFix t' (ArrayVariableDefinition t s size)
   BoolLiteral a -> retFix Bool (BoolLiteral a)
   CharLiteral a -> retFix Int8 (CharLiteral a)
   IntLiteral a -> do

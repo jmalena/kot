@@ -116,10 +116,10 @@ boolLiteral = choice
   , True <$ symbol "true"
   ]
 
-decimalLiteral :: Parser Int64
+decimalLiteral :: (Num a) => Parser a
 decimalLiteral = lexeme Lexer.decimal
 
-floatLiteral :: Parser Double
+floatLiteral :: (RealFloat a) => Parser a
 floatLiteral = lexeme Lexer.float
 
 charLiteral :: Parser Word8
@@ -132,10 +132,7 @@ stringLiteral = undefined
 -- Parser
 
 program :: Parser [SrcAnnDecl]
-program = spaceConsumer *> many import_ *> many declaration <* eof
-
-import_ :: Parser B.Short.ShortByteString
-import_ = B.Short.pack <$> (symbol "import" *> many (alphaNumChar <|> char 46) <* symbol ";")
+program = spaceConsumer *> many declaration <* eof
 
 declaration :: Parser SrcAnnDecl
 declaration = functionExtern
@@ -224,13 +221,20 @@ expr = makeExprParser term operatorTable
           pure $ \e1@(Fix (Ann (SrcSpan l1 _) _)) e2@(Fix (Ann (SrcSpan _ r2) _)) ->
             Fix (Ann (SrcSpan l1 r2) (BinaryOperator op e1 e2))
 
-exprVariableDefinition :: Parser SrcAnnExpr
-exprVariableDefinition = withSrcAnnFix $
+variableDefinition :: Parser SrcAnnExpr
+variableDefinition = withSrcAnnFix $
   VariableDefinition <$> type_ <*> identifier <*> optional value
   where value = symbol "=" *> expr
 
+arrayVariableDefinition :: Parser SrcAnnExpr
+arrayVariableDefinition = withSrcAnnFix $
+  ArrayVariableDefinition <$> type_ <*> identifier <*> size
+  where size = NonEmpty.fromList <$> (symbol "[" *> (decimalLiteral `sepBy` symbol ",") <* symbol "]")
+
 exprWithDefinition :: Parser SrcAnnExpr
-exprWithDefinition = exprVariableDefinition <|> expr
+exprWithDefinition = try arrayVariableDefinition
+                     <|> variableDefinition
+                     <|> expr
 
 term :: Parser SrcAnnExpr
 term = try (withSrcAnnFix $ FloatLiteral <$> floatLiteral)

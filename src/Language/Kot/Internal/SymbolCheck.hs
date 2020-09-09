@@ -179,6 +179,11 @@ symbolCheckExpr (Fix (Ann pos expr)) = case expr of
     when defined $ throwError (RedefinedVariable pos s)
     defineVariable s (bareId t)
     retFix (VariableDefinition t s e')
+  ArrayVariableDefinition t s size -> do
+    defined <- isVariableDefinedTop s
+    when defined $ throwError (RedefinedVariable pos s)
+    defineVariable s (Ptr (bareId t))
+    retFix (ArrayVariableDefinition t s size)
   BoolLiteral a -> retFix (BoolLiteral a)
   CharLiteral a -> retFix (CharLiteral a)
   IntLiteral a -> retFix (IntLiteral a)
