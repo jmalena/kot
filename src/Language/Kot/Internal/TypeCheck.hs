@@ -112,10 +112,13 @@ typeCheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
   Expr e -> do
     e' <- typeCheckExpr e
     retFix Nothing (Expr e')
-  Return e -> do
-    e'@(Fix (Ann (span, _, _, t) _)) <- typeCheckExprWithHint rt e
-    assertType span (castable rt) t
-    retFix (Just t) (Return e')
+  Return (Just e) -> do
+    e'@(Fix (Ann (_, _, _, t) _)) <- typeCheckExprWithHint rt e
+    assertType pos (castable rt) t
+    retFix (Just t) (Return (Just e'))
+  Return Nothing -> do
+    assertType pos (castable rt) Void
+    retFix (Just Void) (Return Nothing)
   where retFix rt x = pure (rt, Fix (Ann ann x))
 
 -- | The hint comes from variable definition. E.g. for "i32 a = [e]", the hint for "[e]" will be "Just Int32".

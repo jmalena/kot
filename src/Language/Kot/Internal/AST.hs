@@ -29,7 +29,7 @@ data StmtF expr type_ f
   | For (Maybe expr, Maybe expr, Maybe expr) [f]
   | Print expr
   | Expr expr
-  | Return expr
+  | Return (Maybe expr)
   deriving (Eq, Ord, Show)
 
 data ExprF unaryOp binaryOp type_ f

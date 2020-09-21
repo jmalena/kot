@@ -156,7 +156,7 @@ symbolCheckStmt (Fix (Ann pos stmt)) = case stmt of
     e' <- symbolCheckExpr e
     retFix (Expr e')
   Return e -> do
-    e' <- symbolCheckExpr e
+    e' <- mapM symbolCheckExpr e
     retFix (Return e')
   where retFix x = do
           ft <- gets funSymTable

@@ -212,10 +212,12 @@ codeGenStmt (Fix (Ann _ stmt)) = case stmt of
     funs <- gets printExterns
     void $ call (funs Map.! t) [(e', [])]
   AST.Expr e -> void $ codeGenExpr e
-  AST.Return e -> do
+  AST.Return (Just e) -> do
     t <- fromJust <$> gets returnType
     e' <- codeGenCastableExpr t e
     ret e'
+  AST.Return Nothing ->
+    retVoid
 
 codeGenLValue :: TypAnnExpr -> CGBlock (Operand, AST.Type)
 codeGenLValue (Fix (Ann (_, ft, _, t) expr)) = case expr of

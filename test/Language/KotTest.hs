@@ -4,6 +4,8 @@
 
 module Language.KotTest where
 
+import Control.Monad
+
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Char8 as C
 import           Data.String.QQ
@@ -21,6 +23,14 @@ import Test.Tasty.HUnit
 
 unit_return1 :: IO ()
 unit_return1 =
+  void $ interpretWithExitCode [s|
+main(): void {
+  return;
+}
+  |]
+
+unit_return2 :: IO ()
+unit_return2 =
   (@?= 1) =<< interpretWithExitCode [s|
 main(): i32 {
   return 1;

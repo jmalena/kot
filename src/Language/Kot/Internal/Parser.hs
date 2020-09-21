@@ -178,7 +178,7 @@ for = withSrcAnnFix $
 
 ret :: Parser SrcAnnStmt
 ret = withSrcAnnFix $
-  Return <$ symbol "return" <*> terminated expr
+  Return <$ symbol "return" <*> terminated (optional expr)
 
 expr :: Parser SrcAnnExpr
 expr = makeExprParser term operatorTable
