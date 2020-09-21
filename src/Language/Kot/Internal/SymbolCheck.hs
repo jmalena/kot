@@ -104,12 +104,12 @@ symbolCheckDecl :: (MonadState SymbolCheckState m, MonadError Error m)
                   => SrcAnnDecl -> m SymAnnDecl
 symbolCheckDecl (Ann pos (Identity decl)) = case decl of
   FunctionDeclaration s params t body -> do
-    let pts = bareId . fst <$> params
+    let pts = bareId . snd <$> params
     defined <- isFunctionDefined s
     when defined $ throwError (RedefinedFunction pos s)
     defineFunction s (bareId t, pts)
     withScope $ do
-      forM params $ \(pt, ps) ->
+      forM params $ \(ps, pt) ->
         defineVariable ps (bareId pt)
       withScope $ do
         body' <- mapM symbolCheckStmt body
@@ -149,6 +149,9 @@ symbolCheckStmt (Fix (Ann pos stmt)) = case stmt of
       withScope $ do
         body' <- mapM symbolCheckStmt body
         retFix (For (pre', cond', post') body')
+  Print e -> do
+    e' <- symbolCheckExpr e
+    retFix (Print e')
   Expr e -> do
     e' <- symbolCheckExpr e
     retFix (Expr e')
@@ -174,23 +177,23 @@ symbolCheckExpr (Fix (Ann pos expr)) = case expr of
     unless defined $
       throwError (UndefinedVariableReference pos s)
     retFix (VariableReference s)
-  VariableDefinition t s e -> do
+  VariableDefinition s t e -> do
     e' <- mapM symbolCheckExpr e
     defined <- isVariableDefinedTop s
     when defined $ throwError (RedefinedVariable pos s)
     defineVariable s (bareId t)
-    retFix (VariableDefinition t s e')
+    retFix (VariableDefinition s t e')
   ArrayVariableReference s loc -> do
     defined <- isVariableDefined s
     unless defined $
       throwError (UndefinedVariableReference pos s)
     retFix (ArrayVariableReference s loc)
-  ArrayVariableDefinition t s size -> do
+  ArrayVariableDefinition s size t -> do
     let t' = makePointer (bareId t) (length size)
     defined <- isVariableDefinedTop s
     when defined $ throwError (RedefinedVariable pos s)
     defineVariable s t'
-    retFix (ArrayVariableDefinition t s size)
+    retFix (ArrayVariableDefinition s size t)
   BoolLiteral a -> retFix (BoolLiteral a)
   CharLiteral a -> retFix (CharLiteral a)
   IntLiteral a -> retFix (IntLiteral a)

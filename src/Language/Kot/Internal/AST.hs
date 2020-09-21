@@ -19,7 +19,7 @@ import           Data.Word
 type Symbol = B.Short.ShortByteString
 
 data Decl stmt type_
-  = FunctionDeclaration Symbol [(type_, Symbol)] type_ [stmt]
+  = FunctionDeclaration Symbol [(Symbol, type_)] type_ [stmt]
   | FunctionExtern Symbol [type_] type_
   deriving (Eq, Ord, Show)
 
@@ -27,15 +27,16 @@ data StmtF expr type_ f
   = If (NonEmpty.NonEmpty (Maybe expr, [f]))
   | While expr [f]
   | For (Maybe expr, Maybe expr, Maybe expr) [f]
+  | Print expr
   | Expr expr
   | Return expr
   deriving (Eq, Ord, Show)
 
 data ExprF unaryOp binaryOp type_ f
   = FunctionCall Symbol [f]
-  | VariableDefinition type_ Symbol (Maybe f)
+  | VariableDefinition Symbol type_ (Maybe f)
   | VariableReference Symbol
-  | ArrayVariableDefinition type_ Symbol (NonEmpty.NonEmpty Word64)
+  | ArrayVariableDefinition Symbol (NonEmpty.NonEmpty Word64) type_
   | ArrayVariableReference Symbol (NonEmpty.NonEmpty Word64)
   | BoolLiteral Bool
   | CharLiteral Word8

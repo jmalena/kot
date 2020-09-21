@@ -106,7 +106,7 @@ symbol s = B.Short.toShort <$> Lexer.symbol spaceConsumer s
 
 identifier :: Parser Symbol
 identifier = B.Short.pack <$> lexeme parser <?> "identifier"
-  where parser = (:) <$> (letterChar <|> underscore) <*> many (alphaNumChar <|> underscore <|> quote)
+  where parser = (:) <$> (underscore <|> letterChar) <*> many (underscore <|> quote <|> alphaNumChar)
         underscore = char 95
         quote = char 39
 
@@ -147,14 +147,15 @@ functionDeclaration :: Parser SrcAnnDecl
 functionDeclaration = withSrcAnnId $
   FunctionDeclaration <$> identifier <*> params <*> (symbol ":" *> type_) <*> block stmt
   where params = parens (param `sepBy` symbol ",")
-        param = (,) <$> type_ <*> identifier
+        param = (,) <$> identifier <*> (symbol ":" *> type_)
 
 stmt :: Parser SrcAnnStmt
-stmt = if_
-       <|> while
-       <|> for
-       <|> ret
-       <|> (withSrcAnnFix $ Expr <$> terminated exprWithDefinition)
+stmt = try if_
+       <|> try while
+       <|> try for
+       <|> try ret
+       <|> try (withSrcAnnFix $ Expr <$> terminated exprWithDefinition)
+       <|> (withSrcAnnFix $ Print <$> (symbol "print" *> terminated expr))
 
 if_ :: Parser SrcAnnStmt
 if_ = withSrcAnnFix $ If <$> branches
@@ -223,19 +224,19 @@ expr = makeExprParser term operatorTable
 
 variableDefinition :: Parser SrcAnnExpr
 variableDefinition = withSrcAnnFix $
-  VariableDefinition <$> type_ <*> identifier <*> optional value
+  VariableDefinition <$> (symbol "var" *> identifier) <*> (symbol ":" *> type_) <*> optional value
   where value = symbol "=" *> expr
 
 arrayVariableDefinition :: Parser SrcAnnExpr
 arrayVariableDefinition = withSrcAnnFix $
-  ArrayVariableDefinition <$> type_ <*> identifier <*> arrayAccessor
+  ArrayVariableDefinition <$> (symbol "var" *> identifier) <*> arrayAccessor <*> (symbol ":" *> type_)
 
 arrayAccessor :: Parser (NonEmpty.NonEmpty Word64)
 arrayAccessor = NonEmpty.fromList <$> (symbol "[" *> (decimalLiteral `sepBy` symbol ",") <* symbol "]")
 
 exprWithDefinition :: Parser SrcAnnExpr
 exprWithDefinition = try arrayVariableDefinition
-                     <|> variableDefinition
+                     <|> try variableDefinition
                      <|> expr
 
 term :: Parser SrcAnnExpr
@@ -246,7 +247,7 @@ term = try (withSrcAnnFix $ FloatLiteral <$> floatLiteral)
        <|> (withSrcAnnFix $ BoolLiteral <$> boolLiteral)
        <|> try functionCall
        <|> try (withSrcAnnFix $ ArrayVariableReference <$> identifier <*> arrayAccessor)
-       <|> (withSrcAnnFix $ VariableReference <$> identifier)
+       <|> try (withSrcAnnFix $ VariableReference <$> identifier)
        <|> try (withSrcAnnFix $ TypeCast <$> parens type_ <*> expr)
        <|> parens expr
 

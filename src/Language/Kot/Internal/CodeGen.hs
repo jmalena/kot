@@ -15,6 +15,7 @@ import qualified Data.ByteString.Char8 as C
 import           Data.Foldable hiding (null)
 import           Data.Functor.Identity
 import qualified Data.List.NonEmpty    as NonEmpty
+import qualified Data.Map              as Map
 import           Data.Maybe
 import           Data.Word
 
@@ -50,13 +51,14 @@ type CGModule = ModuleBuilderT (State CGModuleState)
 data CGModuleState = CGModuleState
   { funAddrs :: SymTable.SymbolTable AST.Symbol Operand
   , varAddrs :: SymTable.SymbolTable AST.Symbol (Operand, AST.Type)
+  , printExterns :: Map.Map AST.Type Operand
   , returnType :: Maybe AST.Type
   }
 
 type CGBlock = IRBuilderT CGModule
 
 makeCGModuleState :: CGModuleState
-makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Nothing
+makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Map.empty Nothing
 
 runCGModule :: (MonadReader CompileEnv m) => [TypAnnDecl] -> m LLVM.AST.Module
 runCGModule ast = do
@@ -110,17 +112,22 @@ withReturn t m = do
 -- Code gen
 
 codeGenProgram :: [TypAnnDecl] -> CGModule ()
-codeGenProgram ast = mapM_ codeGenDecl ast
+codeGenProgram ast = do
+  printExterns <- forM [AST.Bool, AST.Int8, AST.Int16, AST.Int32, AST.Int64, AST.Float32, AST.Float64] $ \t -> do
+    addr <- extern (mkName $ "___print_" <> show t) [toLLVMType t] LT.void
+    pure (t, addr)
+  modify $ \s -> s { printExterns = Map.fromList printExterns }
+  mapM_ codeGenDecl ast
 
 codeGenDecl :: TypAnnDecl -> CGModule ()
 codeGenDecl (Ann _ (Identity decl)) = case decl of
   AST.FunctionDeclaration s params t body ->
-    let llvmParams = (\(t, s) -> (toLLVMType (bareId t), NoParameterName)) <$> params
+    let llvmParams = (\(s, t) -> (toLLVMType (bareId t), NoParameterName)) <$> params
     in mdo
       addr <- function (Name s) llvmParams (toLLVMType (bareId t)) $ \argOps -> do
         setFunAddr s addr
         withScope $ do
-          forM (zip params argOps) $ \((argType, argName), argOp) -> do
+          forM (zip params argOps) $ \((argName, argType), argOp) -> do
             let argType' = bareId argType
             let align = sizeOf argType'
             addr <- alloca (toLLVMType (bareId argType)) Nothing align
@@ -200,6 +207,10 @@ codeGenStmt (Fix (Ann _ stmt)) = case stmt of
       ---------------
       exitBlock <- block
       pure ()
+  AST.Print e@(Fix (Ann (_, _, _, t) _)) -> do
+    e' <- codeGenExpr e
+    funs <- gets printExterns
+    void $ call (funs Map.! t) [(e', [])]
   AST.Expr e -> void $ codeGenExpr e
   AST.Return e -> do
     t <- fromJust <$> gets returnType
@@ -236,7 +247,7 @@ codeGenExpr e@(Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.VariableReference _ -> do
     (addr, t) <- codeGenLValue e
     load addr (sizeOf t)
-  AST.VariableDefinition t s e -> do
+  AST.VariableDefinition s t e -> do
     let t' = bareId t
     let align = sizeOf t'
     addr <- alloca (toLLVMType (bareId t)) Nothing align
@@ -255,7 +266,7 @@ codeGenExpr e@(Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.ArrayVariableReference _ _ -> do
     (addr, t) <- codeGenLValue e
     load addr (sizeOf t)
-  AST.ArrayVariableDefinition t' s size -> do
+  AST.ArrayVariableDefinition s size t' -> do
     let align = 16 -- why? why not?
     let llvmType = foldr LT.ArrayType (toLLVMType (bareId t')) size
     addr <- alloca llvmType Nothing align

@@ -105,12 +105,15 @@ typeCheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
     post' <- mapM typeCheckExpr post
     (_, body') <- typeCheckBlock rt body
     retFix Nothing (For (pre', cond', post') body')
+  Print e -> do
+    e'@(Fix (Ann (span, _, _, t) _)) <- typeCheckExpr e
+    assertType span (bool `orType` number) t
+    retFix Nothing (Print e')
   Expr e -> do
     e' <- typeCheckExpr e
     retFix Nothing (Expr e')
   Return e -> do
-    e'@(Fix (Ann (span, _, _, _) _)) <- typeCheckExprWithHint rt e
-    let t = typeAnnF e'
+    e'@(Fix (Ann (span, _, _, t) _)) <- typeCheckExprWithHint rt e
     assertType span (castable rt) t
     retFix (Just t) (Return e')
   where retFix rt x = pure (rt, Fix (Ann ann x))
@@ -129,13 +132,13 @@ typeCheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
       pure arg'
     retFix t (FunctionCall s args')
   VariableReference s -> retFix (SymTable.lookup' s vt) (VariableReference s)
-  VariableDefinition t s e -> do
+  VariableDefinition s t e -> do
     let t' = bareId t
     e' <- forM e $ \e -> do
       e'@(Fix (Ann (span, _, _, et) _)) <- typeCheckExprWithHint t' e
       assertType span (castable t') et
       pure e'
-    retFix t' (VariableDefinition t s e')
+    retFix t' (VariableDefinition s t e')
   ArrayVariableReference s loc -> do
     let t = SymTable.lookup' s vt
     case peelPointer t (length loc) of
@@ -143,8 +146,8 @@ typeCheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
         let ts = Set.singleton . fromJust $ flip makePointer (length loc) <$> pointerBase t
         throwError (UnexpectedType pos ts t)
       Just t' -> retFix t' (ArrayVariableReference s loc)
-  ArrayVariableDefinition t s size -> do
-    retFix (SymTable.lookup' s vt) (ArrayVariableDefinition t s size)
+  ArrayVariableDefinition s t size -> do
+    retFix (SymTable.lookup' s vt) (ArrayVariableDefinition s t size)
   BoolLiteral a -> retFix Bool (BoolLiteral a)
   CharLiteral a -> retFix Int8 (CharLiteral a)
   IntLiteral a -> do
