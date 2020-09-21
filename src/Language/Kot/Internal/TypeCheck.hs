@@ -81,7 +81,7 @@ typeCheckBlock rt body = do
   pure (rt', body')
 
 typeCheckStmt :: (MonadError Error m) => Type -> SymAnnStmt -> m (Maybe Type, TypAnnStmt)
-typeCheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
+typeCheckStmt rt (Fix (Ann ann@(pos, _, vt) stmt)) = case stmt of
   If branches -> do
     branches' <- forM (NonEmpty.toList branches) $ \(cond, body) -> do
       cond' <- forM cond $ \cond -> do
@@ -105,6 +105,9 @@ typeCheckStmt rt (Fix (Ann ann@(pos, _, _) stmt)) = case stmt of
     post' <- mapM typeCheckExpr post
     (_, body') <- typeCheckBlock rt body
     retFix Nothing (For (pre', cond', post') body')
+  Read s -> do
+    assertType pos number (SymTable.lookup' s vt)
+    retFix Nothing (Read s)
   Print e -> do
     e'@(Fix (Ann (span, _, _, t) _)) <- typeCheckExpr e
     assertType span (bool `orType` number) t

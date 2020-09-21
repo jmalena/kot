@@ -27,6 +27,7 @@ data StmtF expr type_ f
   = If (NonEmpty.NonEmpty (Maybe expr, [f]))
   | While expr [f]
   | For (Maybe expr, Maybe expr, Maybe expr) [f]
+  | Read Symbol
   | Print expr
   | Expr expr
   | Return (Maybe expr)

@@ -155,6 +155,7 @@ stmt = try if_
        <|> try for
        <|> try ret
        <|> try (withSrcAnnFix $ Expr <$> terminated exprWithDefinition)
+       <|> try (withSrcAnnFix $ Read <$> (symbol "read" *> terminated identifier))
        <|> (withSrcAnnFix $ Print <$> (symbol "print" *> terminated expr))
 
 if_ :: Parser SrcAnnStmt

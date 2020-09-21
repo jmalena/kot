@@ -149,6 +149,10 @@ symbolCheckStmt (Fix (Ann pos stmt)) = case stmt of
       withScope $ do
         body' <- mapM symbolCheckStmt body
         retFix (For (pre', cond', post') body')
+  Read s -> do
+    defined <- isVariableDefined s
+    unless defined $ throwError (RedefinedFunction pos s)
+    retFix (Read s)
   Print e -> do
     e' <- symbolCheckExpr e
     retFix (Print e')

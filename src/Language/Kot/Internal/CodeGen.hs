@@ -51,6 +51,7 @@ type CGModule = ModuleBuilderT (State CGModuleState)
 data CGModuleState = CGModuleState
   { funAddrs :: SymTable.SymbolTable AST.Symbol Operand
   , varAddrs :: SymTable.SymbolTable AST.Symbol (Operand, AST.Type)
+  , readExterns :: Map.Map AST.Type Operand
   , printExterns :: Map.Map AST.Type Operand
   , returnType :: Maybe AST.Type
   }
@@ -58,7 +59,7 @@ data CGModuleState = CGModuleState
 type CGBlock = IRBuilderT CGModule
 
 makeCGModuleState :: CGModuleState
-makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Map.empty Nothing
+makeCGModuleState = CGModuleState SymTable.empty SymTable.empty Map.empty Map.empty Nothing
 
 runCGModule :: (MonadReader CompileEnv m) => [TypAnnDecl] -> m LLVM.AST.Module
 runCGModule ast = do
@@ -113,10 +114,13 @@ withReturn t m = do
 
 codeGenProgram :: [TypAnnDecl] -> CGModule ()
 codeGenProgram ast = do
+  readExterns <- forM [AST.Int8, AST.Int16, AST.Int32, AST.Int64, AST.Float32, AST.Float64] $ \t -> do
+    addr <- extern (mkName $ "___read_" <> show t) [toLLVMType (AST.Ptr t)] LT.void
+    pure (t, addr)
   printExterns <- forM [AST.Bool, AST.Int8, AST.Int16, AST.Int32, AST.Int64, AST.Float32, AST.Float64] $ \t -> do
     addr <- extern (mkName $ "___print_" <> show t) [toLLVMType t] LT.void
     pure (t, addr)
-  modify $ \s -> s { printExterns = Map.fromList printExterns }
+  modify $ \s -> s { readExterns = Map.fromList readExterns, printExterns = Map.fromList printExterns }
   mapM_ codeGenDecl ast
 
 codeGenDecl :: TypAnnDecl -> CGModule ()
@@ -207,6 +211,10 @@ codeGenStmt (Fix (Ann _ stmt)) = case stmt of
       ---------------
       exitBlock <- block
       pure ()
+  AST.Read s -> do
+    (addr, t) <- getVarAddr s
+    funs <- gets readExterns
+    void $ call (funs Map.! t) [(addr, [])]
   AST.Print e@(Fix (Ann (_, _, _, t) _)) -> do
     e' <- codeGenExpr e
     funs <- gets printExterns

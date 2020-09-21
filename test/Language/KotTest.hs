@@ -466,6 +466,15 @@ main(): void {
 }
   |]
 
+unit_scan :: IO ()
+unit_scan =
+  checkCode [s|
+main(): void {
+  var a: i32;
+  read a;
+}
+  |]
+
 unit_print :: IO ()
 unit_print =
   checkCode [s|
