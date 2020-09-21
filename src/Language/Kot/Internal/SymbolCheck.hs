@@ -187,11 +187,12 @@ symbolCheckExpr (Fix (Ann pos expr)) = case expr of
     when defined $ throwError (RedefinedVariable pos s)
     defineVariable s (bareId t)
     retFix (VariableDefinition s t e')
-  ArrayVariableReference s loc -> do
+  ArrayVariableReference s es -> do
+    es' <- mapM symbolCheckExpr es
     defined <- isVariableDefined s
     unless defined $
       throwError (UndefinedVariableReference pos s)
-    retFix (ArrayVariableReference s loc)
+    retFix (ArrayVariableReference s es')
   ArrayVariableDefinition s size t -> do
     let t' = makePointer (bareId t) (length size)
     defined <- isVariableDefinedTop s

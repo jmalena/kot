@@ -150,10 +150,10 @@ functionDeclaration = withSrcAnnId $
         param = (,) <$> identifier <*> (symbol ":" *> type_)
 
 stmt :: Parser SrcAnnStmt
-stmt = try if_
-       <|> try while
-       <|> try for
-       <|> try ret
+stmt = if_
+       <|> while
+       <|> for
+       <|> ret
        <|> try (withSrcAnnFix $ Expr <$> terminated exprWithDefinition)
        <|> try (withSrcAnnFix $ Read <$> (symbol "read" *> terminated identifier))
        <|> (withSrcAnnFix $ Print <$> (symbol "print" *> terminated expr))
@@ -230,14 +230,14 @@ variableDefinition = withSrcAnnFix $
 
 arrayVariableDefinition :: Parser SrcAnnExpr
 arrayVariableDefinition = withSrcAnnFix $
-  ArrayVariableDefinition <$> (symbol "var" *> identifier) <*> arrayAccessor <*> (symbol ":" *> type_)
+  ArrayVariableDefinition <$> (symbol "var" *> identifier) <*> arrayAccessor decimalLiteral <*> (symbol ":" *> type_)
 
-arrayAccessor :: Parser (NonEmpty.NonEmpty Word64)
-arrayAccessor = NonEmpty.fromList <$> (symbol "[" *> (decimalLiteral `sepBy` symbol ",") <* symbol "]")
+arrayAccessor :: Parser a -> Parser (NonEmpty.NonEmpty a)
+arrayAccessor p = NonEmpty.fromList <$> (symbol "[" *> (p `sepBy` symbol ",") <* symbol "]")
 
 exprWithDefinition :: Parser SrcAnnExpr
 exprWithDefinition = try arrayVariableDefinition
-                     <|> try variableDefinition
+                     <|> variableDefinition
                      <|> expr
 
 term :: Parser SrcAnnExpr
@@ -247,8 +247,8 @@ term = try (withSrcAnnFix $ FloatLiteral <$> floatLiteral)
        -- <|> (StringLiteral <$> stringLiteral <?> "string literal")
        <|> (withSrcAnnFix $ BoolLiteral <$> boolLiteral)
        <|> try functionCall
-       <|> try (withSrcAnnFix $ ArrayVariableReference <$> identifier <*> arrayAccessor)
-       <|> try (withSrcAnnFix $ VariableReference <$> identifier)
+       <|> try (withSrcAnnFix $ ArrayVariableReference <$> identifier <*> arrayAccessor expr)
+       <|> (withSrcAnnFix $ VariableReference <$> identifier)
        <|> try (withSrcAnnFix $ TypeCast <$> parens type_ <*> expr)
        <|> parens expr
 

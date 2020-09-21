@@ -38,7 +38,7 @@ data ExprF unaryOp binaryOp type_ f
   | VariableDefinition Symbol type_ (Maybe f)
   | VariableReference Symbol
   | ArrayVariableDefinition Symbol (NonEmpty.NonEmpty Word64) type_
-  | ArrayVariableReference Symbol (NonEmpty.NonEmpty Word64)
+  | ArrayVariableReference Symbol (NonEmpty.NonEmpty f)
   | BoolLiteral Bool
   | CharLiteral Word8
   | IntLiteral Int64

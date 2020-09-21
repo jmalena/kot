@@ -231,12 +231,13 @@ codeGenLValue :: TypAnnExpr -> CGBlock (Operand, AST.Type)
 codeGenLValue (Fix (Ann (_, ft, _, t) expr)) = case expr of
   AST.VariableReference s ->
     getVarAddr s
-  AST.ArrayVariableReference s loc -> do
+  AST.ArrayVariableReference s es -> do
+    es' <- mapM (codeGenCastableExpr AST.Int64) es
     (addr, _) <- getVarAddr s
-    addr' <- go (NonEmpty.toList loc) addr
+    addr' <- go (NonEmpty.toList es') addr
     pure (addr', t)
     where go []     addr = pure addr
-          go (n:ns) addr = gep addr [int64 0, int64 (fromIntegral n)] >>= go ns
+          go (e:es) addr = gep addr [int64 0, e] >>= go es
   AST.UnaryOperator op e ->
     case bareId op of
       AST.Dereference -> do

@@ -145,13 +145,17 @@ typeCheckExprGeneral hint (Fix (Ann (pos, ft, vt) expr)) = case expr of
       assertType span (castable t') et
       pure e'
     retFix t' (VariableDefinition s t e')
-  ArrayVariableReference s loc -> do
+  ArrayVariableReference s es -> do
+    es' <- forM es $ \e -> do
+      e'@(Fix (Ann (span, _, _, et) _)) <- typeCheckExpr e
+      assertType span int et
+      pure e'
     let t = SymTable.lookup' s vt
-    case peelPointer t (length loc) of
+    case peelPointer t (length es) of
       Nothing -> do
-        let ts = Set.singleton . fromJust $ flip makePointer (length loc) <$> pointerBase t
+        let ts = Set.singleton . fromJust $ flip makePointer (length es) <$> pointerBase t
         throwError (UnexpectedType pos ts t)
-      Just t' -> retFix t' (ArrayVariableReference s loc)
+      Just t' -> retFix t' (ArrayVariableReference s es')
   ArrayVariableDefinition s t size -> do
     retFix (SymTable.lookup' s vt) (ArrayVariableDefinition s t size)
   BoolLiteral a -> retFix Bool (BoolLiteral a)

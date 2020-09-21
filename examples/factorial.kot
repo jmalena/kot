@@ -1,0 +1,13 @@
+factorial(n: i64): i64 {
+  if (n <= 1) {
+    return 1;
+  }
+
+  return n * factorial(n - 1);
+}
+
+main(): void {
+  var n: i64;
+  read n;
+  print factorial(n);
+}
