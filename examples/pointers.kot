@@ -1,0 +1,6 @@
+main(): void {
+  var a: i64;
+  var b: i64* = &a;
+  a = 10;
+  print *b;
+}

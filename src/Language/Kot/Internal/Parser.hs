@@ -154,9 +154,10 @@ stmt = if_
        <|> while
        <|> for
        <|> ret
-       <|> try (withSrcAnnFix $ Expr <$> terminated exprWithDefinition)
        <|> try (withSrcAnnFix $ Read <$> (symbol "read" *> terminated identifier))
-       <|> (withSrcAnnFix $ Print <$> (symbol "print" *> terminated expr))
+       <|> try (withSrcAnnFix $ Print <$> (symbol "print" *> terminated expr))
+       <|> (withSrcAnnFix $ Expr <$> terminated exprWithDefinition)
+
 
 if_ :: Parser SrcAnnStmt
 if_ = withSrcAnnFix $ If <$> branches
