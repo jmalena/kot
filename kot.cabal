@@ -2,7 +2,7 @@ name:                kot
 version:             0.1.0.0
 -- synopsis:
 -- description:
-license:             BSD3
+license:             MIT
 license-file:        LICENSE
 author:              jmalena
 maintainer:          jonas.malena@gmail.com
