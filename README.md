@@ -1,6 +1,6 @@
 # kot
 
-Kot is a fast, modern, minimalist imperative language and also compiler with the same name.
+Kot is a minimalist imperative language and a compiler of the same name.
 
 ## Usage
 
