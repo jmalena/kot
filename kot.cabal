@@ -26,7 +26,7 @@ library
                        Language.Kot.Internal.Util.Type
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >=4.13 && <4.14,
+  build-depends:       base >=4.9 && <5,
                        bytestring >=0.10 && <0.11,
                        containers >=0.6 && <0.7,
                        llvm-hs >=9.0 && <9.1,
@@ -41,7 +41,7 @@ executable kot
   main-is:             Main.hs
   -- other-modules:
   -- other-extensions:
-  build-depends:       base >=4.13 && <4.14,
+  build-depends:       base >=4.9 && <5,
                        bytestring >=0.10 && <0.11,
                        kot,
                        optparse-applicative >=0.16 && <0.17
@@ -53,7 +53,7 @@ test-suite test
   main-is:             Driver.hs
   other-modules:       Language.KotTest
   build-tool-depends:  tasty-discover:tasty-discover
-  build-depends:       base >=4.13 && <4.14,
+  build-depends:       base >=4.9 && <5,
                        kot,
                        bytestring >=0.10 && <0.11,
                        process >=1.6 && <1.7,
